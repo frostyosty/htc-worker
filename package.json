@@ -1,0 +1,9 @@
+{
+  "name": "htc-worker",
+  "version": "1.0.0",
+  "dependencies": {
+    "@libsql/client": "latest",
+    "imap-simple": "latest",
+    "mailparser": "latest"
+  }
+}
