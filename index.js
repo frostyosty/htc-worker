@@ -133,12 +133,12 @@ async function run() {
                 args: [acc.id]
             });
 
-        } catch (e) {
-            console.error(`   - Error: ${e.message}`);
+      } catch (e) {
+            // 🟢 CRITICAL: Log error but DO NOT THROW. Loop continues.
+            console.error(`   ❌ Failed to sync ${acc.email}: ${e.message}`);
         }
     }
     
     console.log("\n✅ Global Sync Complete.");
 }
-
 run();
