@@ -1,10 +1,9 @@
-// index.js in the PUBLIC repo
 const { createClient } = require('@libsql/client');
 const imaps = require('imap-simple');
 const { simpleParser } = require('mailparser');
 const crypto = require('crypto');
 
-// Secrets come from Environment, NOT hardcoded
+// --- CONFIG ---
 const DB_URL = process.env.HTC_TURSO_DATABASE_URL;
 const DB_TOKEN = process.env.HTC_TURSO_AUTH_TOKEN;
 const SECRET_KEY = process.env.MAIL_SECRET_KEY;
@@ -16,7 +15,7 @@ if (!DB_URL || !DB_TOKEN || !SECRET_KEY) {
 
 const db = createClient({ url: DB_URL, authToken: DB_TOKEN });
 
-// --- CRYPTO HELPER (Re-implemented for standalone script) ---
+// --- HELPERS ---
 function decrypt(text, ivHex) {
     try {
         const iv = Buffer.from(ivHex, 'hex');
@@ -33,7 +32,7 @@ function decrypt(text, ivHex) {
 async function run() {
     console.log("🚀 Starting Global Email Sync...");
     
-    // 1. Get ALL accounts (No limits)
+    // 1. Get ALL accounts
     const rs = await db.execute("SELECT * FROM mail_accounts");
     const accounts = rs.rows;
     console.log(`Found ${accounts.length} accounts.`);
@@ -55,14 +54,18 @@ async function run() {
                     host: acc.host,
                     port: acc.port || 993,
                     tls: true,
-                    authTimeout: 10000, // Long timeout allowed now!
+                    authTimeout: 15000, 
                     tlsOptions: { rejectUnauthorized: false }
                 }
             };
 
             const connection = await imaps.connect(config);
             
-            // 🟢 FIX: Correct way to get box info
+            // 🟢 PREVENT CRASH: Handle connection errors
+            connection.on('error', (err) => {
+                console.warn("   - IMAP Connection Warning:", err.message);
+            });
+
             const box = await connection.openBox('INBOX');
             const totalMessages = box.messages.total;
 
@@ -72,14 +75,16 @@ async function run() {
                 continue;
             }
 
-            // Fetch last 5 emails
+            // 🟢 FIX: Use 'search' with UID range instead of 'fetch'
             const fetchStart = Math.max(1, totalMessages - 4); 
             const fetchRange = `${fetchStart}:*`;
             
-            console.log(`   - Fetching ${fetchRange} (Total: ${totalMessages})`);
+            console.log(`   - Fetching range: ${fetchRange} (Total: ${totalMessages})`);
             
             const fetchOptions = { bodies: ['HEADER', 'TEXT'], markSeen: false, struct: true };
-            const messages = await connection.fetch(fetchRange, fetchOptions);
+            
+            // This is the line that was crashing. We now use .search with a UID criteria.
+            const messages = await connection.search([['UID', fetchRange]], fetchOptions);
 
             let newCount = 0;
 
@@ -93,27 +98,33 @@ async function run() {
                 });
 
                 if (exists.rows.length === 0) {
+                    // imap-simple puts the body in parts
                     const all = msg.parts.find(p => p.which === '');
-                    const parsed = await simpleParser(all.body);
                     
-                    await db.execute({
-                        sql: `INSERT INTO mail_messages (account_id, uid, sender, subject, preview, full_body, received_at)
-                              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                        args: [
-                            acc.id, 
-                            uid, 
-                            parsed.from?.text?.substring(0, 100) || 'Unknown', 
-                            parsed.subject?.substring(0, 200) || '(No Subject)', 
-                            parsed.text ? parsed.text.substring(0, 150) : '',
-                            parsed.html || parsed.textAsHtml || parsed.text || '', 
-                            parsed.date ? parsed.date.toISOString() : new Date().toISOString()
-                        ]
-                    });
-                    newCount++;
+                    if (all && all.body) {
+                        const parsed = await simpleParser(all.body);
+                        
+                        await db.execute({
+                            sql: `INSERT INTO mail_messages (account_id, uid, sender, subject, preview, full_body, received_at)
+                                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                            args: [
+                                acc.id, 
+                                uid, 
+                                parsed.from?.text?.substring(0, 100) || 'Unknown', 
+                                parsed.subject?.substring(0, 200) || '(No Subject)', 
+                                parsed.text ? parsed.text.substring(0, 150) : '',
+                                parsed.html || parsed.textAsHtml || parsed.text || '', 
+                                parsed.date ? parsed.date.toISOString() : new Date().toISOString()
+                            ]
+                        });
+                        newCount++;
+                    }
                 }
             }
             
             console.log(`   - Synced ${newCount} new messages.`);
+            
+            // Clean close
             connection.end();
 
             // Update timestamp
