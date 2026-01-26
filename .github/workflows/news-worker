@@ -1,0 +1,19 @@
+name: 4-Hour News Scraper
+
+on:
+  schedule:
+    - cron: '5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape-news:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with: { node-version: 18 }
+      - run: npm install
+      - run: node news.js
+        env:
+          HTC_TURSO_DATABASE_URL: ${{ secrets.HTC_TURSO_DATABASE_URL }}
+          HTC_TURSO_AUTH_TOKEN: ${{ secrets.HTC_TURSO_AUTH_TOKEN }}
