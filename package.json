@@ -4,6 +4,8 @@
   "dependencies": {
     "@libsql/client": "latest",
     "imap-simple": "latest",
-    "mailparser": "latest"
+    "mailparser": "latest",
+    "axios": "latest",
+    "cheerio": "latest"
   }
 }
