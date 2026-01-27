@@ -13,7 +13,6 @@ if (!DB_URL || !DB_TOKEN) {
 
 const db = createClient({ url: DB_URL, authToken: DB_TOKEN });
 
-// Define sources inline (since this is a standalone worker)
 const SCRAPER_SOURCES = {
     war: [
         {
@@ -22,13 +21,6 @@ const SCRAPER_SOURCES = {
             keywords: ['war', 'conflict', 'gaza', 'ukraine', 'military', 'invasion', 'strike'],
             contentSelector: 'div[data-testid="ArticleBody"]',
             imageSelector: 'div[data-testid="Image"] img',
-        },
-        {
-            url: 'https://apnews.com/hub/war-and-unrest',
-            articleSelector: '.CardHeadline a.link',
-            keywords: ['war', 'conflict', 'military', 'army', 'russia', 'israel', 'hamas'],
-            contentSelector: '.Article-body',
-            imageSelector: '.figure-image img',
         }
     ],
     tech: [
@@ -39,25 +31,16 @@ const SCRAPER_SOURCES = {
             contentSelector: 'div[itemprop="articleBody"]',
             imageSelector: 'figure.intro-image img',
         }
-    ],
-    ai: [
-        {
-            url: 'https://techcrunch.com/category/artificial-intelligence/',
-            articleSelector: 'h2.post-block__title a',
-            keywords: ['ai', 'gpt', 'llm', 'openai', 'anthropic', 'mistral', 'deepmind'],
-            contentSelector: 'div.article-content',
-            imageSelector: 'img.article__featured-image',
-        }
     ]
 };
 
 async function scrapeArticleContent(articleUrl, sourceConfig) {
     try {
-        const { data: articleHtml } = await axios.get(articleUrl, { 
-            timeout: 15000,
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } 
+        const res = await axios.get(articleUrl, { 
+            timeout: 10000,
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } 
         });
-        const $ = cheerio.load(articleHtml);
+        const $ = cheerio.load(res.data);
         
         let content = $(sourceConfig.contentSelector).find('p').slice(0, 3).text().trim();
         // Fallback
@@ -75,7 +58,6 @@ async function scrapeArticleContent(articleUrl, sourceConfig) {
 
         return { content, imageUrl };
     } catch (error) {
-        // console.warn(`Content fetch failed for ${articleUrl}`);
         return { content: null, imageUrl: null };
     }
 }
@@ -89,17 +71,16 @@ async function runNews() {
         
         for (const source of SCRAPER_SOURCES[category]) {
             try {
-                const { data: listHtml } = await axios.get(source.url, { 
+                const res = await axios.get(source.url, { 
                     timeout: 10000,
                     headers: { 'User-Agent': 'HTC-Bot/1.0' }
                 });
-                const $ = cheerio.load(listHtml);
-                
+                const $ = cheerio.load(res.data);
                 const articleElements = $(source.articleSelector).toArray();
                 let count = 0;
 
                 for (const el of articleElements) {
-                    if (count >= 3) break; // Limit 3 per source
+                    if (count >= 3) break; 
 
                     const title = $(el).text().trim();
                     let link = $(el).attr('href');
@@ -107,8 +88,7 @@ async function runNews() {
                     if (!title || !link || title.length < 15) continue;
 
                     // Keyword Check
-                    const titleLower = title.toLowerCase();
-                    const hasKeyword = source.keywords.some(k => titleLower.includes(k));
+                    const hasKeyword = source.keywords.some(k => title.toLowerCase().includes(k));
                     if (!hasKeyword) continue;
 
                     if (!link.startsWith('http')) {
@@ -130,7 +110,7 @@ async function runNews() {
                         if (content && content.length > 50) {
                             allScrapedArticles.push({
                                 title,
-                                content: `<p>${content}...</p><p><a href="${link}" target="_blank" rel="nofollow">Read full story</a></p>`,
+                                content: `<p>${content}...</p><p><a href="${link}" target="_blank">Read more</a></p>`,
                                 category,
                                 imageUrl,
                                 sourceUrl: link,
@@ -140,7 +120,7 @@ async function runNews() {
                     }
                 }
             } catch (err) {
-                console.error(`   - Source failed: ${source.url}`);
+                console.error(`   - Source failed: ${source.url} (${err.message})`);
             }
         }
     }
@@ -170,4 +150,8 @@ async function runNews() {
     }
 }
 
-runNews();
+// Execute
+runNews().catch(err => {
+    console.error("FATAL ERROR:", err);
+    process.exit(1);
+});
