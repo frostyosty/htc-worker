@@ -2,7 +2,7 @@ name: 4-Hour News Scraper
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # Every 5 mins
+    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -11,7 +11,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
-        with: { node-version: 18 }
+        with:
+          node-version: 20  # 🟢 FIX: Upgrade from 18 to 20
       - run: npm install
       - run: node news.js
         env:
