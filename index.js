@@ -30,9 +30,8 @@ function decrypt(text, ivHex) {
 }
 
 async function run() {
-    console.log("🚀 Starting Global Email Sync...");
+    console.log("🚀 Starting Ultimate Email Sync (Inbox, Sent, Drafts, Trash)...");
     
-    // 1. Get ALL accounts
     const rs = await db.execute("SELECT * FROM mail_accounts");
     const accounts = rs.rows;
     console.log(`Found ${accounts.length} accounts.`);
@@ -54,91 +53,110 @@ async function run() {
                     host: acc.host,
                     port: acc.port || 993,
                     tls: true,
-                    authTimeout: 15000, 
+                    authTimeout: 10000, 
                     tlsOptions: { rejectUnauthorized: false }
                 }
             };
 
             const connection = await imaps.connect(config);
             
-            // 🟢 PREVENT CRASH: Handle connection errors
             connection.on('error', (err) => {
                 console.warn("   - IMAP Connection Warning:", err.message);
             });
 
-            const box = await connection.openBox('INBOX');
-            const totalMessages = box.messages.total;
-
-            if (totalMessages === 0) {
-                console.log("   - Empty Inbox");
-                connection.end();
-                continue;
-            }
-
-            // 🟢 FIX: Use 'search' with UID range instead of 'fetch'
-            const fetchStart = Math.max(1, totalMessages - 4); 
-            const fetchRange = `${fetchStart}:*`;
-            
-            console.log(`   - Fetching range: ${fetchRange} (Total: ${totalMessages})`);
-            
-            const fetchOptions = { bodies: ['HEADER', 'TEXT'], markSeen: false, struct: true };
-            
-            // This is the line that was crashing. We now use .search with a UID criteria.
-            const messages = await connection.search([['UID', fetchRange]], fetchOptions);
-
-            let newCount = 0;
-
-            for (const msg of messages) {
-                const uid = msg.attributes.uid;
-                
-                // Check DB
-                const exists = await db.execute({
-                    sql: "SELECT id FROM mail_messages WHERE account_id = ? AND uid = ?",
-                    args: [acc.id, uid]
-                });
-
-                if (exists.rows.length === 0) {
-                    // imap-simple puts the body in parts
-                    const all = msg.parts.find(p => p.which === '');
+            // 🟢 REUSABLE SYNC ENGINE
+            const syncFolder = async (boxName, dbFolderLabel, limit = 8) => {
+                try {
+                    await connection.openBox(boxName);
                     
-                    if (all && all.body) {
-                        const parsed = await simpleParser(all.body);
+                    // Fetch last 5 days (Keeps it fast)
+                    const date = new Date();
+                    date.setDate(date.getDate() - 5); 
+                    const searchCriteria = [['SINCE', date.toISOString()]];
+                    const fetchOptions = { bodies: ['HEADER', 'TEXT'], markSeen: false, struct: true };
+
+                    const messages = await connection.search(searchCriteria, fetchOptions);
+                    
+                    // Apply strict limit (e.g. only top 5 drafts)
+                    const recent = messages.reverse().slice(0, limit); 
+
+                    let count = 0;
+                    for (const msg of recent) {
+                        const uid = msg.attributes.uid;
                         
-                        await db.execute({
-                            sql: `INSERT INTO mail_messages (account_id, uid, sender, subject, preview, full_body, received_at)
-                                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                            args: [
-                                acc.id, 
-                                uid, 
-                                parsed.from?.text?.substring(0, 100) || 'Unknown', 
-                                parsed.subject?.substring(0, 200) || '(No Subject)', 
-                                parsed.text ? parsed.text.substring(0, 150) : '',
-                                parsed.html || parsed.textAsHtml || parsed.text || '', 
-                                parsed.date ? parsed.date.toISOString() : new Date().toISOString()
-                            ]
+                        // Check DB
+                        const exists = await db.execute({
+                            sql: "SELECT id FROM mail_messages WHERE account_id = ? AND uid = ? AND folder = ?",
+                            args: [acc.id, uid, dbFolderLabel]
                         });
-                        newCount++;
+
+                        if (exists.rows.length === 0) {
+                            const all = msg.parts.find(p => p.which === '');
+                            if (all && all.body) {
+                                const parsed = await simpleParser(all.body);
+                                
+                                await db.execute({
+                                    sql: `INSERT INTO mail_messages (account_id, uid, folder, sender, subject, preview, full_body, received_at)
+                                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                                    args: [
+                                        acc.id, 
+                                        uid, 
+                                        dbFolderLabel, 
+                                        parsed.from?.text?.substring(0, 100) || 'Unknown', 
+                                        parsed.subject?.substring(0, 200) || '(No Subject)', 
+                                        parsed.text ? parsed.text.substring(0, 150) : '',
+                                        parsed.html || parsed.textAsHtml || parsed.text || '', 
+                                        parsed.date ? parsed.date.toISOString() : new Date().toISOString()
+                                    ]
+                                });
+                                count++;
+                            }
+                        }
                     }
+                    console.log(`   - [${dbFolderLabel}] Synced ${count} new items (Limit: ${limit}).`);
+                } catch (e) {
+                    // Silent fail for missing folders
                 }
-            }
+            };
+
+            // ============================================
+            // 1. INBOX (Priority) - Sync 10
+            // ============================================
+            await syncFolder('INBOX', 'INBOX', 10);
+
+            // ============================================
+            // 2. SENT - Sync 10
+            // ============================================
+            if (acc.host.includes('gmail')) await syncFolder('[Gmail]/Sent Mail', 'SENT', 10);
+            else if (acc.host.includes('outlook') || acc.host.includes('office365')) await syncFolder('Sent Items', 'SENT', 10);
+            else await syncFolder('Sent', 'SENT', 10);
+
+            // ============================================
+            // 3. DRAFTS - Sync 5 (Prevent Clutter)
+            // ============================================
+            if (acc.host.includes('gmail')) await syncFolder('[Gmail]/Drafts', 'DRAFTS', 5);
+            else await syncFolder('Drafts', 'DRAFTS', 5);
+
+            // ============================================
+            // 4. TRASH - Sync 5 (Just in case)
+            // ============================================
+            if (acc.host.includes('gmail')) await syncFolder('[Gmail]/Trash', 'TRASH', 5);
+            else if (acc.host.includes('outlook') || acc.host.includes('office365')) await syncFolder('Deleted Items', 'TRASH', 5);
+            else await syncFolder('Trash', 'TRASH', 5);
             
-            console.log(`   - Synced ${newCount} new messages.`);
-            
-            // Clean close
             connection.end();
 
-            // Update timestamp
             await db.execute({
                 sql: "UPDATE mail_accounts SET last_synced_at = CURRENT_TIMESTAMP WHERE id = ?",
                 args: [acc.id]
             });
 
       } catch (e) {
-            // 🟢 CRITICAL: Log error but DO NOT THROW. Loop continues.
             console.error(`   ❌ Failed to sync ${acc.email}: ${e.message}`);
         }
     }
     
     console.log("\n✅ Global Sync Complete.");
+    process.exit(0);
 }
 run();
