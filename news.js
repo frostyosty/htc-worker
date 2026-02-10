@@ -43,14 +43,11 @@ async function scrapeArticleContent(articleUrl, sourceConfig) {
         const $ = cheerio.load(res.data);
         
         let content = $(sourceConfig.contentSelector).find('p').slice(0, 3).text().trim();
-        // Fallback
         if (!content || content.length < 50) {
             content = $('p').slice(0, 3).text().trim();
         }
 
         let imageUrl = $(sourceConfig.imageSelector).first().attr('src') || null;
-        
-        // Ensure absolute URL
         if (imageUrl && !imageUrl.startsWith('http')) {
             const baseUrl = new URL(articleUrl).origin;
             imageUrl = new URL(imageUrl, baseUrl).href;
@@ -58,6 +55,7 @@ async function scrapeArticleContent(articleUrl, sourceConfig) {
 
         return { content, imageUrl };
     } catch (error) {
+        console.warn(`  - [Scraper] Content fetch failed for ${articleUrl}: ${error.message}`);
         return { content: null, imageUrl: null };
     }
 }
@@ -76,18 +74,21 @@ async function runNews() {
                     headers: { 'User-Agent': 'HTC-Bot/1.0' }
                 });
                 const $ = cheerio.load(res.data);
+
+                // <-- Debug log for how many elements were found -->
+                console.log(`[DEBUG] ${source.url} → selector: ${source.articleSelector} → matches:`, $(source.articleSelector).length);
+
                 const articleElements = $(source.articleSelector).toArray();
                 let count = 0;
 
                 for (const el of articleElements) {
-                    if (count >= 3) break; 
+                    if (count >= 3) break;
 
                     const title = $(el).text().trim();
                     let link = $(el).attr('href');
 
                     if (!title || !link || title.length < 15) continue;
 
-                    // Keyword Check
                     const hasKeyword = source.keywords.some(k => title.toLowerCase().includes(k));
                     if (!hasKeyword) continue;
 
@@ -96,7 +97,6 @@ async function runNews() {
                         link = new URL(link, base).href;
                     }
 
-                    // DB Check
                     const existing = await db.execute({ 
                         sql: "SELECT id FROM articles WHERE source_url = ?", 
                         args: [link] 
@@ -104,9 +104,9 @@ async function runNews() {
                     
                     if (existing.rows.length === 0) {
                         console.log(`   + Found New: "${title.substring(0, 40)}..."`);
-                        
+
                         const { content, imageUrl } = await scrapeArticleContent(link, source);
-                        
+
                         if (content && content.length > 50) {
                             allScrapedArticles.push({
                                 title,
@@ -124,8 +124,8 @@ async function runNews() {
             }
         }
     }
-    
-    // Insert
+
+    // Insert articles
     if (allScrapedArticles.length > 0) {
         for (const article of allScrapedArticles) {
             try {
@@ -150,7 +150,6 @@ async function runNews() {
     }
 }
 
-// Execute
 runNews().catch(err => {
     console.error("FATAL ERROR:", err);
     process.exit(1);
