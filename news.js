@@ -1,36 +1,62 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
+// 🟢 CONFIG: Stronger Selectors
 const SCRAPER_SOURCES = {
     'Mixed': [
-        { url: 'https://www.allsides.com/headline-roundups', base: 'https://www.allsides.com', 
-          articleSelector: '.news-title a', contentSelector: '.story-id-page-description', imageSelector: '.img-fluid',
-          keywords: ['politics', 'news', 'world', 'election', 'debate'] }
+        { 
+            url: 'https://www.allsides.com/headline-roundups', 
+            base: 'https://www.allsides.com', 
+            // Try specific, then generic h2
+            selectors: ['.news-title a', '.view-content h2 a'], 
+            contentSelector: '.story-id-page-description', 
+            keywords: ['politics', 'news', 'world', 'election'] 
+        }
     ],
     'Wars': [
-        { url: 'https://www.reuters.com/world/', base: 'https://www.reuters.com',
-          articleSelector: '[data-testid="Heading"] a', contentSelector: 'article p', imageSelector: 'figure img',
-          keywords: ['war', 'conflict', 'military', 'ukraine', 'gaza', 'israel', 'russia'],
-          useProxy: true },
-        { url: 'https://www.bbc.com/news/world', base: 'https://www.bbc.com',
-          articleSelector: '[data-testid="card-headline"]', contentSelector: 'main p', imageSelector: 'img',
-          keywords: ['war', 'conflict', 'missile', 'attack'] }
+        { 
+            url: 'https://www.bbc.com/news/world', 
+            base: 'https://www.bbc.com',
+            // BBC uses data-testid, but fall back to standard h2
+            selectors: ['[data-testid="card-headline"]', 'h2[data-testid="card-headline"]', 'h2 a'], 
+            contentSelector: 'main p', 
+            keywords: ['war', 'conflict', 'missile', 'attack', 'military', 'gaza', 'ukraine', 'russia'] 
+        },
+        { 
+            url: 'https://www.reuters.com/world/', 
+            base: 'https://www.reuters.com',
+            selectors: ['[data-testid="Heading"] a', 'h3[data-testid="Heading"] a', '.story-card a'], 
+            contentSelector: 'article p',
+            keywords: ['war', 'conflict', 'military', 'ukraine', 'gaza', 'israel'],
+            useProxy: true 
+        }
     ],
     'AI': [
-        { url: 'https://techcrunch.com/category/artificial-intelligence/', base: 'https://techcrunch.com',
-          articleSelector: '.loop-card__title a, h2 a', contentSelector: '.article-content p, .entry-content p',
-          keywords: ['ai', 'gpt', 'openai', 'llm'] }
+        { 
+            url: 'https://techcrunch.com/category/artificial-intelligence/', 
+            base: 'https://techcrunch.com',
+            selectors: ['.loop-card__title a', 'h2.post-block__title a', 'h2 a'], 
+            contentSelector: '.entry-content p', 
+            keywords: ['ai', 'gpt', 'openai', 'llm'] 
+        }
     ],
     'Tech': [
-        { url: 'https://arstechnica.com/gadgets/', base: 'https://arstechnica.com',
-          articleSelector: 'header h2 a', contentSelector: '.article-content p', imageSelector: 'figure.intro-image img',
-          keywords: ['review', 'phone', 'apple', 'chip'] }
+        { 
+            url: 'https://arstechnica.com/gadgets/', 
+            base: 'https://arstechnica.com',
+            // Ars Technica
+            selectors: ['header h2 a', '.article-overlay a', 'h2 a'], 
+            contentSelector: '.article-content p', 
+            keywords: ['review', 'phone', 'apple', 'chip', 'laptop', 'android'] 
+        }
     ]
 };
 
 async function fetchArticleDetails(url, config, API_KEY) {
     try {
         let html;
+        const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
+        
         if (config.useProxy && API_KEY) {
             const res = await axios.get('http://api.scraperapi.com', {
                 params: { api_key: API_KEY, url: url, render: 'false' },
@@ -38,10 +64,7 @@ async function fetchArticleDetails(url, config, API_KEY) {
             });
             html = res.data;
         } else {
-            const res = await axios.get(url, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-                timeout: 10000
-            });
+            const res = await axios.get(url, { headers, timeout: 15000 });
             html = res.data;
         }
 
@@ -62,36 +85,59 @@ module.exports = async function runScraper(db, API_KEY) {
     let totalAdded = 0;
 
     for (const category in SCRAPER_SOURCES) {
+        console.log(`\n📂 Processing Category: ${category}`);
+        
         for (const source of SCRAPER_SOURCES[category]) {
             try {
-                let listHtml;
+                let htmlData = null;
+                const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
+
+                // Fetch List Page
                 if (source.useProxy && API_KEY) {
+                    console.log(`   🛡️ Proxy: ${source.url}`);
                     const res = await axios.get('http://api.scraperapi.com', {
                         params: { api_key: API_KEY, url: source.url },
-                        timeout: 30000
+                        timeout: 40000
                     });
-                    listHtml = res.data;
+                    htmlData = res.data;
                 } else {
-                    const res = await axios.get(source.url, {
-                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-                        timeout: 10000
-                    });
-                    listHtml = res.data;
+                    console.log(`   ⚡ Direct: ${source.url}`);
+                    const res = await axios.get(source.url, { headers, timeout: 15000 });
+                    htmlData = res.data;
                 }
                 
-                const $ = cheerio.load(listHtml);
-                const elements = $(source.articleSelector).toArray();
-                let count = 0;
+                const $ = cheerio.load(htmlData);
+                
+                // 🟢 NEW: Try Selectors until one works
+                let elements = [];
+                for (const sel of source.selectors) {
+                    const found = $(sel).toArray();
+                    if (found.length > 0) {
+                        elements = found;
+                        // console.log(`      -> Matched selector: "${sel}" (${found.length} items)`);
+                        break;
+                    }
+                }
 
+                if (elements.length === 0) {
+                    console.warn(`      ❌ No items found. Check selectors for ${source.url}`);
+                    continue;
+                }
+
+                let count = 0;
                 for (const el of elements) {
-                    if (count >= 3) break;
+                    if (count >= 3) break; // Max 3 per source
                     
                     const title = $(el).text().trim();
                     let link = $(el).attr('href');
                     if (!title || !link) continue;
 
+                    // Lowercase check
                     const titleLower = title.toLowerCase();
-                    if (!source.keywords.some(k => titleLower.includes(k))) continue;
+                    if (!source.keywords.some(k => titleLower.includes(k))) {
+                        // console.log(`      - Skip (Keyword): ${title.substring(0, 20)}...`);
+                        continue;
+                    }
 
                     if (!link.startsWith('http')) {
                         const base = source.base || new URL(source.url).origin;
@@ -101,7 +147,7 @@ module.exports = async function runScraper(db, API_KEY) {
                     const exists = await db.execute({ sql: "SELECT id FROM articles WHERE source_url = ?", args: [link] });
                     
                     if (exists.rows.length === 0) {
-                        console.log(`   > Scraping: ${title}`);
+                        console.log(`      ✅ Scrape: "${title.substring(0, 40)}..."`);
                         const summary = await fetchArticleDetails(link, source, API_KEY);
                         
                         const formattedContent = `
@@ -118,7 +164,6 @@ module.exports = async function runScraper(db, API_KEY) {
                             args: [title, formattedContent, category, link]
                         });
                         
-                        console.log(`   + [${category}] Saved.`);
                         count++;
                         totalAdded++;
                     }
@@ -128,5 +173,5 @@ module.exports = async function runScraper(db, API_KEY) {
             }
         }
     }
-    console.log(`📰 Scraper finished. Added ${totalAdded} articles.`);
+    console.log(`\n📰 Scraper finished. Added ${totalAdded} articles.`);
 };
