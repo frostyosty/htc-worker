@@ -194,12 +194,29 @@ async function runScraper() {
 }
 
 // ============================================================
-// MAIN ENTRY
+// MAIN ENTRY (Smart Switch)
 // ============================================================
 async function main() {
-    await runEmailSync();
-    await runScraper();
+    // Get arguments passed to the script (e.g., node index.js --news)
+    const args = process.argv.slice(2);
+    const runNews = args.includes('--news');
+    const runEmail = args.includes('--email');
+
+    // Default: If no flags provided, run EVERYTHING (Legacy support)
+    const runAll = !runNews && !runEmail;
+
+    console.log(`[Worker] Mode: ${runAll ? 'ALL' : args.join(', ')}`);
+
+    if (runAll || runEmail) {
+        await runEmailSync();
+    }
+
+    if (runAll || runNews) {
+        await runScraper();
+    }
+
     console.log("\n✅ WORKER JOB COMPLETE");
+    process.exit(0);
 }
 
 main();
