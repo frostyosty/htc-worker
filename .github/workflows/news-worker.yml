@@ -1,4 +1,4 @@
-name: 4-Hour News Scraper
+name: 10-Min News Scraper
 
 on:
   schedule:
