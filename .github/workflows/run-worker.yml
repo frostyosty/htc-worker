@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - run: npm install
-      - run: node index.js
+      - run: node index.js --email # 🟢 FIX: Only run email
         env:
           # These link to the SECRETS you will save in Settings
           HTC_TURSO_DATABASE_URL: ${{ secrets.HTC_TURSO_DATABASE_URL }}
