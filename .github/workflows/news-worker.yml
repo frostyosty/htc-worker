@@ -18,3 +18,4 @@ jobs:
         env:
           HTC_TURSO_DATABASE_URL: ${{ secrets.HTC_TURSO_DATABASE_URL }}
           HTC_TURSO_AUTH_TOKEN: ${{ secrets.HTC_TURSO_AUTH_TOKEN }}
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
