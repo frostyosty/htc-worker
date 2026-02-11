@@ -114,28 +114,96 @@ async function runEmailSync() {
 // PART B: NEWS SCRAPER LOGIC
 // ============================================================
 const SCRAPER_SOURCES = {
+    // --------------------------------------------------------
+    // CATEGORY: MIXED (Direct - Low Security Site)
+    // --------------------------------------------------------
     'Mixed': [
-        { url: 'https://www.allsides.com/headline-roundups', base: 'https://www.allsides.com', 
-          articleSelector: '.view-content .views-row .news-title a', contentSelector: '.article-description', imageSelector: '.img-fluid',
-          keywords: ['politics', 'news', 'world'] }
+        {
+            // AllSides (Direct connection usually works)
+            url: 'https://www.allsides.com/headline-roundups',
+            base: 'https://www.allsides.com',
+            articleSelector: '.view-content .views-row .news-title a', 
+            contentSelector: '.article-description', 
+            imageSelector: '.img-fluid',
+            keywords: ['politics', 'election', 'news', 'world', 'policy'],
+            useProxy: true // Save credits
+        }
     ],
+
+    // --------------------------------------------------------
+    // CATEGORY: WAR & WORLD (Reuters via Proxy)
+    // --------------------------------------------------------
     'Wars': [
-        { url: 'https://www.reuters.com/world/', base: 'https://www.reuters.com',
-          articleSelector: '[data-testid="Heading"] a', contentSelector: 'article p', imageSelector: 'figure img',
-          keywords: ['war', 'conflict', 'military', 'ukraine', 'gaza', 'israel', 'russia'] },
-        { url: 'https://www.bbc.com/news/world', base: 'https://www.bbc.com',
-          articleSelector: '[data-testid="card-headline"]', contentSelector: 'main p', imageSelector: 'img',
-          keywords: ['war', 'conflict', 'missile', 'attack'] }
+        {
+            // 🟢 REUTERS (Hard Blocked -> Proxy Required)
+            url: 'https://www.reuters.com/world/',
+            base: 'https://www.reuters.com',
+            articleSelector: '[data-testid="Heading"] a', 
+            contentSelector: 'article p', 
+            imageSelector: 'figure img',
+            keywords: ['war', 'conflict', 'military', 'gaza', 'ukraine', 'russia', 'china'],
+            useProxy: true // 🟢 FORCE PROXY
+        },
+        {
+            // BBC (Direct usually fine)
+            url: 'https://www.bbc.com/news/world',
+            base: 'https://www.bbc.com',
+            articleSelector: '[data-testid="card-headline"]', 
+            contentSelector: 'main p', 
+            imageSelector: 'img',
+            keywords: ['war', 'conflict', 'missile', 'attack'],
+            useProxy: false
+        }
     ],
+
+    
+
+    // --------------------------------------------------------
+    // CATEGORY: AI (Source: TechCrunch, The Verge)
+    // --------------------------------------------------------
     'AI': [
-        { url: 'https://techcrunch.com/category/artificial-intelligence/', base: 'https://techcrunch.com',
-          articleSelector: '.loop-card__title a, h2 a', contentSelector: '.article-content', imageSelector: '.article-hero__image',
-          keywords: ['ai', 'gpt', 'openai', 'llm'] }
+        {
+            url: 'https://techcrunch.com/category/artificial-intelligence/',
+            base: 'https://techcrunch.com',
+            // TechCrunch uses loop-card titles
+            articleSelector: '.loop-card__title a, h2 a', 
+            contentSelector: '.article-content',
+            imageSelector: '.article-hero__image',
+            keywords: ['ai', 'gpt', 'openai', 'google', 'meta', 'llm', 'robot', 'intelligence']
+        },
+        {
+            url: 'https://www.theverge.com/ai-artificial-intelligence',
+            base: 'https://www.theverge.com',
+            // Verge uses h2s for headlines in their feed
+            articleSelector: 'h2 a', 
+            contentSelector: '.duet--article--text-component',
+            imageSelector: 'figure.duet--article--thumbnail img',
+            keywords: ['ai', 'chatgpt', 'gemini', 'copilot', 'generative', 'model']
+        }
     ],
+
+    // --------------------------------------------------------
+    // CATEGORY: TECH (Source: Ars Technica, Wired)
+    // --------------------------------------------------------
     'Tech': [
-        { url: 'https://arstechnica.com/gadgets/', base: 'https://arstechnica.com',
-          articleSelector: 'header h2 a', contentSelector: '.article-content', imageSelector: 'figure.intro-image img',
-          keywords: ['review', 'phone', 'apple', 'chip'] }
+        {
+            url: 'https://arstechnica.com/gadgets/',
+            base: 'https://arstechnica.com',
+            // Ars Technica standard header
+            articleSelector: 'header h2 a', 
+            contentSelector: '.article-content',
+            imageSelector: 'figure.intro-image img',
+            keywords: ['review', 'phone', 'apple', 'samsung', 'chip', 'laptop', 'hardware']
+        },
+        {
+            // Engadget /tech 404s, so we use Wired which is reliable
+            url: 'https://www.wired.com/category/gear/',
+            base: 'https://www.wired.com',
+            articleSelector: '.SummaryItemHedLink-civMjp', // Wired class
+            contentSelector: '.body__content',
+            imageSelector: '.ResponsiveImageContainer-eybUyO img',
+            keywords: ['gear', 'gadget', 'new', 'review', 'watch', 'phone']
+        }
     ]
 };
 
