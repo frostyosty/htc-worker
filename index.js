@@ -222,6 +222,46 @@ const SCRAPER_SOURCES = {
     ]
 };
 
+
+
+
+// 🟢 Helper to get the actual content page
+async function fetchArticleDetails(url, config) {
+    try {
+        let html;
+        // Use Proxy if needed
+        if (config.useProxy && SCRAPER_API_KEY) {
+            const res = await axios.get('http://api.scraperapi.com', {
+                params: { api_key: SCRAPER_API_KEY, url: url, render: 'false' },
+                timeout: 30000
+            });
+            html = res.data;
+        } else {
+            const res = await axios.get(url, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                timeout: 10000
+            });
+            html = res.data;
+        }
+
+        const $ = cheerio.load(html);
+        
+        // 🟢 Get first substantial paragraph
+        let text = '';
+        if (config.contentSelector) {
+            text = $(config.contentSelector).first().text().trim();
+            // If first p is empty or too short (often a byline), try second
+            if (text.length < 50) {
+                text = $(config.contentSelector).eq(1).text().trim();
+            }
+        }
+        
+        return text || "Click to read full story.";
+    } catch (e) {
+        return "Click to read full story.";
+    }
+}
+
 async function runScraper() {
     console.log("\n📰 --- STARTING NEWS SCRAPER ---");
     
@@ -252,20 +292,39 @@ async function runScraper() {
                     htmlData = directRes.data;
                 }
                 
-                const $ = cheerio.load(htmlData);
+                // 1. Fetch List Page
+                let listHtml;
+                if (source.useProxy && SCRAPER_API_KEY) {
+                    const res = await axios.get('http://api.scraperapi.com', {
+                        params: { api_key: SCRAPER_API_KEY, url: source.url },
+                        timeout: 30000
+                    });
+                    listHtml = res.data;
+                } else {
+                    const res = await axios.get(source.url, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                        timeout: 10000
+                    });
+                    listHtml = res.data;
+                }
+                
+                const $ = cheerio.load(listHtml);
                 const elements = $(source.articleSelector).toArray();
                 let count = 0;
 
+                // Process up to 3 articles per source
                 for (const el of elements) {
                     if (count >= 3) break;
+                    
                     const title = $(el).text().trim();
                     let link = $(el).attr('href');
                     if (!title || !link) continue;
 
-                    // Keyword check
+                    // Keyword Filtering (Case Insensitive)
                     const titleLower = title.toLowerCase();
                     if (!source.keywords.some(k => titleLower.includes(k))) continue;
 
+                    // Fix Link
                     if (!link.startsWith('http')) {
                         const base = source.base || new URL(source.url).origin;
                         link = new URL(link, base).href;
@@ -273,13 +332,30 @@ async function runScraper() {
 
                     // Duplicate Check
                     const exists = await db.execute({ sql: "SELECT id FROM articles WHERE source_url = ?", args: [link] });
+                    
                     if (exists.rows.length === 0) {
+                        console.log(`   > Scraping Details: ${title}`);
+                        
+                        // 🟢 2. Fetch Deep Details (The Summary)
+                        const summary = await fetchArticleDetails(link, source);
+                        
+                        // Format Content nicely
+                        const formattedContent = `
+                            <p>${summary}</p>
+                            <br>
+                            <a href="${link}" target="_blank" rel="nofollow" class="read-more-link" style="color:#007bff; text-decoration:none; font-weight:bold;">
+                                Read Source ↗
+                            </a>
+                        `;
+
+                        // Insert
                         await db.execute({
                             sql: `INSERT INTO articles (title, content, category, has_photo, image_url, is_automated, source_url, status, created_at, last_activity_at)
                                   VALUES (?, ?, ?, 0, NULL, 1, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-                            args: [title, `<p>Auto-scraped from ${source.url}</p>`, category, link]
+                            args: [title, formattedContent, category, link]
                         });
-                        console.log(`   + [${category}] ${title}`);
+                        
+                        console.log(`   + [${category}] Saved.`);
                         count++;
                         totalAdded++;
                     }
