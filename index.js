@@ -5,13 +5,13 @@ const crypto = require('crypto');
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// --- CONFIG ---
+// --- GLOBAL CONFIG (Needed for everything) ---
 const DB_URL = process.env.HTC_TURSO_DATABASE_URL;
 const DB_TOKEN = process.env.HTC_TURSO_AUTH_TOKEN;
-const SECRET_KEY = process.env.MAIL_SECRET_KEY;
 
-if (!DB_URL || !DB_TOKEN || !SECRET_KEY) {
-    console.error("❌ Missing Environment Variables");
+// Only check DB connection globally
+if (!DB_URL || !DB_TOKEN) {
+    console.error("❌ Missing Database Variables (HTC_TURSO_DATABASE_URL or HTC_TURSO_AUTH_TOKEN)");
     process.exit(1);
 }
 
@@ -21,6 +21,9 @@ const db = createClient({ url: DB_URL, authToken: DB_TOKEN });
 // PART A: EMAIL LOGIC
 // ============================================================
 function decrypt(text, ivHex) {
+    const SECRET_KEY = process.env.MAIL_SECRET_KEY;
+    if (!SECRET_KEY) throw new Error("MAIL_SECRET_KEY missing");
+    
     try {
         const iv = Buffer.from(ivHex, 'hex');
         const encryptedText = Buffer.from(text, 'hex');
@@ -33,6 +36,13 @@ function decrypt(text, ivHex) {
 
 async function runEmailSync() {
     console.log("\n📧 --- STARTING EMAIL SYNC ---");
+    
+    // 🟢 LAZY CHECK: Only check mail key here
+    if (!process.env.MAIL_SECRET_KEY) {
+        console.error("❌ Skipping Email Sync: MAIL_SECRET_KEY is missing.");
+        return;
+    }
+
     const rs = await db.execute("SELECT * FROM mail_accounts");
     const accounts = rs.rows;
 
@@ -49,6 +59,11 @@ async function runEmailSync() {
                 }
             });
 
+            // ... (rest of syncFolder logic stays exactly the same) ...
+            // Re-paste the syncFolder logic from previous step here if rewriting file
+            // For brevity, I assume you keep the existing syncFolder logic
+            
+            // ... inside the loop ...
             const syncFolder = async (boxName, dbFolderLabel, limit = 8) => {
                 try {
                     await connection.openBox(boxName);
@@ -209,18 +224,35 @@ const SCRAPER_SOURCES = {
 
 async function runScraper() {
     console.log("\n📰 --- STARTING NEWS SCRAPER ---");
+    
+    // 🟢 CONFIG: Proxy Key (Optional but recommended)
+    const PROXY_KEY = process.env.SCRAPER_API_KEY; 
+
     let totalAdded = 0;
 
     for (const category in SCRAPER_SOURCES) {
         for (const source of SCRAPER_SOURCES[category]) {
             try {
-                // Impersonate Chrome
-                const { data: listHtml } = await axios.get(source.url, {
-                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-                    timeout: 10000
-                });
+                let htmlData = null;
+
+                // 🟢 PROXY LOGIC
+                if (source.useProxy && PROXY_KEY) {
+                    console.log(`   🛡️ Using Proxy for ${source.url}`);
+                    const proxyRes = await axios.get('http://api.scraperapi.com', {
+                        params: { api_key: PROXY_KEY, url: source.url, render: 'true' },
+                        timeout: 60000
+                    });
+                    htmlData = proxyRes.data;
+                } else {
+                    // Direct Connection (Impersonate Chrome)
+                    const directRes = await axios.get(source.url, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                        timeout: 10000
+                    });
+                    htmlData = directRes.data;
+                }
                 
-                const $ = cheerio.load(listHtml);
+                const $ = cheerio.load(htmlData);
                 const elements = $(source.articleSelector).toArray();
                 let count = 0;
 
@@ -242,7 +274,6 @@ async function runScraper() {
                     // Duplicate Check
                     const exists = await db.execute({ sql: "SELECT id FROM articles WHERE source_url = ?", args: [link] });
                     if (exists.rows.length === 0) {
-                        // Insert (Status 1 = Approved immediately)
                         await db.execute({
                             sql: `INSERT INTO articles (title, content, category, has_photo, image_url, is_automated, source_url, status, created_at, last_activity_at)
                                   VALUES (?, ?, ?, 0, NULL, 1, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
@@ -262,26 +293,18 @@ async function runScraper() {
 }
 
 // ============================================================
-// MAIN ENTRY (Smart Switch)
+// MAIN ENTRY
 // ============================================================
 async function main() {
-    // Get arguments passed to the script (e.g., node index.js --news)
     const args = process.argv.slice(2);
     const runNews = args.includes('--news');
     const runEmail = args.includes('--email');
-
-    // Default: If no flags provided, run EVERYTHING (Legacy support)
     const runAll = !runNews && !runEmail;
 
     console.log(`[Worker] Mode: ${runAll ? 'ALL' : args.join(', ')}`);
 
-    if (runAll || runEmail) {
-        await runEmailSync();
-    }
-
-    if (runAll || runNews) {
-        await runScraper();
-    }
+    if (runAll || runEmail) await runEmailSync();
+    if (runAll || runNews) await runScraper();
 
     console.log("\n✅ WORKER JOB COMPLETE");
     process.exit(0);
