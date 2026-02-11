@@ -1,65 +1,116 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// 🟢 CONFIG: Stronger Selectors
+// ============================================================
+// 1. CONFIGURATION: THE SOURCE LIST
+// ============================================================
 const SCRAPER_SOURCES = {
+    // --- MIXED / POLITICS ---
     'Mixed': [
         { 
+            name: 'AllSides',
             url: 'https://www.allsides.com/headline-roundups', 
             base: 'https://www.allsides.com', 
-            // Try specific, then generic h2
-            selectors: ['.news-title a', '.view-content h2 a'], 
-            contentSelector: '.story-id-page-description', 
-            keywords: ['politics', 'news', 'world', 'election'] 
+            selectors: ['.news-title a', 'h2 a'], 
+            keywords: ['politics', 'election', 'world'],
+            useProxy: true // Fixed 403
+        },
+        {
+            name: 'The Guardian (World)',
+            url: 'https://www.theguardian.com/world',
+            base: 'https://www.theguardian.com',
+            selectors: ['.dcr-16c50tn', '.fc-item__title a', 'h3 a'],
+            keywords: ['politics', 'crisis', 'un', 'treaty'],
+            useProxy: false
         }
     ],
+
+    // --- WARS / CONFLICT ---
     'Wars': [
         { 
+            name: 'BBC World',
             url: 'https://www.bbc.com/news/world', 
             base: 'https://www.bbc.com',
-            // BBC uses data-testid, but fall back to standard h2
-            selectors: ['[data-testid="card-headline"]', 'h2[data-testid="card-headline"]', 'h2 a'], 
-            contentSelector: 'main p', 
-            keywords: ['war', 'conflict', 'missile', 'attack', 'military', 'gaza', 'ukraine', 'russia'] 
+            selectors: ['[data-testid="card-headline"]', 'h2[data-testid="card-headline"]'], 
+            keywords: ['war', 'conflict', 'missile', 'attack', 'gaza', 'ukraine', 'russia'],
+            useProxy: false 
         },
         { 
+            name: 'Reuters World',
             url: 'https://www.reuters.com/world/', 
             base: 'https://www.reuters.com',
-            selectors: ['[data-testid="Heading"] a', 'h3[data-testid="Heading"] a', '.story-card a'], 
-            contentSelector: 'article p',
-            keywords: ['war', 'conflict', 'military', 'ukraine', 'gaza', 'israel'],
+            selectors: ['[data-testid="Heading"] a', '.story-card a', 'h3 a'], 
+            keywords: ['war', 'military', 'strike', 'army', 'truce'],
             useProxy: true 
+        },
+        {
+            name: 'Al Jazeera',
+            url: 'https://www.aljazeera.com/where/middle-east/',
+            base: 'https://www.aljazeera.com',
+            selectors: ['h3.gc__title a', '.article-card__title a'],
+            keywords: ['war', 'bomb', 'killed', 'strike'],
+            useProxy: true
+        },
+        {
+            name: 'CNN World',
+            url: 'https://edition.cnn.com/world',
+            base: 'https://edition.cnn.com',
+            selectors: ['.container__headline-text', '.cd__headline-text'],
+            keywords: ['war', 'conflict'],
+            useProxy: false
         }
     ],
+
+    // --- AI ---
     'AI': [
         { 
+            name: 'TechCrunch AI',
             url: 'https://techcrunch.com/category/artificial-intelligence/', 
             base: 'https://techcrunch.com',
-            selectors: ['.loop-card__title a', 'h2.post-block__title a', 'h2 a'], 
-            contentSelector: '.entry-content p', 
-            keywords: ['ai', 'gpt', 'openai', 'llm'] 
+            selectors: ['h2.post-block__title a', '.loop-card__title a'], 
+            keywords: ['ai', 'gpt', 'openai', 'llm', 'model'] 
+        },
+        {
+            name: 'The Verge AI',
+            url: 'https://www.theverge.com/ai-artificial-intelligence',
+            base: 'https://www.theverge.com',
+            selectors: ['h2 a', '.duet--content-cards--content-card_headline'],
+            keywords: ['ai', 'chatgpt', 'google', 'gemini'],
+            useProxy: false
         }
     ],
+
+    // --- TECH ---
     'Tech': [
         { 
+            name: 'Ars Technica',
             url: 'https://arstechnica.com/gadgets/', 
             base: 'https://arstechnica.com',
-            // Ars Technica
-            selectors: ['header h2 a', '.article-overlay a', 'h2 a'], 
-            contentSelector: '.article-content p', 
-            keywords: ['review', 'phone', 'apple', 'chip', 'laptop', 'android'] 
+            selectors: ['h2 a', '.article-overlay a'], 
+            keywords: ['review', 'apple', 'chip', 'android'] 
+        },
+        {
+            name: 'Wired Gear',
+            url: 'https://www.wired.com/category/gear/',
+            base: 'https://www.wired.com',
+            selectors: ['.SummaryItemHedLink-civMjp', 'h3.SummaryItemHedBase-hiCrND'],
+            keywords: ['gear', 'phone', 'laptop'],
+            useProxy: true
         }
     ]
 };
 
-async function fetchArticleDetails(url, config, API_KEY) {
+// ============================================================
+// 2. HELPER: EXTRACT METADATA (Date, Author, Summary)
+// ============================================================
+async function fetchDeepDetails(url, config, API_KEY) {
     try {
         let html;
-        const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
+        const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36' };
         
         if (config.useProxy && API_KEY) {
             const res = await axios.get('http://api.scraperapi.com', {
-                params: { api_key: API_KEY, url: url, render: 'false' },
+                params: { api_key: API_KEY, url: url, render: 'false' }, // 'false' is faster/cheaper
                 timeout: 30000
             });
             html = res.data;
@@ -69,29 +120,57 @@ async function fetchArticleDetails(url, config, API_KEY) {
         }
 
         const $ = cheerio.load(html);
+        
+        // --- A. GET SUMMARY ---
         let text = '';
-        if (config.contentSelector) {
-            text = $(config.contentSelector).first().text().trim();
-            if (text.length < 50) text = $(config.contentSelector).eq(1).text().trim();
+        // Try meta description first (often cleanest)
+        text = $('meta[name="description"]').attr('content') || 
+               $('meta[property="og:description"]').attr('content');
+        
+        // If meta failed, grab first paragraph
+        if (!text || text.length < 50) {
+            text = $('article p').first().text().trim() || 
+                   $('.article-body p').first().text().trim() || 
+                   $('main p').first().text().trim();
         }
-        return text || "Click to read full story.";
+
+        // --- B. GET AUTHOR ---
+        let author = $('meta[name="author"]').attr('content') || 
+                     $('meta[property="article:author"]').attr('content') || 
+                     $('.author-name').first().text().trim() ||
+                     config.name; // Fallback to Site Name
+
+        // --- C. GET DATE ---
+        let date = $('meta[property="article:published_time"]').attr('content') || 
+                   $('meta[name="date"]').attr('content') || 
+                   $('time').first().attr('datetime') || 
+                   new Date().toISOString();
+
+        return { 
+            text: text || "Click to read full story.", 
+            author: author || config.name, 
+            date: date 
+        };
+
     } catch (e) {
-        return "Click to read full story.";
+        return { text: "Click to read full story.", author: config.name, date: new Date().toISOString() };
     }
 }
 
+// ============================================================
+// 3. MAIN RUNNER
+// ============================================================
 module.exports = async function runScraper(db, API_KEY) {
     console.log("\n📰 --- STARTING NEWS SCRAPER ---");
     let totalAdded = 0;
 
     for (const category in SCRAPER_SOURCES) {
-        console.log(`\n📂 Processing Category: ${category}`);
+        console.log(`\n📂 Category: ${category}`);
         
         for (const source of SCRAPER_SOURCES[category]) {
             try {
-                let htmlData = null;
-                const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
-
+                let htmlData;
+                
                 // Fetch List Page
                 if (source.useProxy && API_KEY) {
                     console.log(`   🛡️ Proxy: ${source.url}`);
@@ -102,74 +181,87 @@ module.exports = async function runScraper(db, API_KEY) {
                     htmlData = res.data;
                 } else {
                     console.log(`   ⚡ Direct: ${source.url}`);
-                    const res = await axios.get(source.url, { headers, timeout: 15000 });
+                    const res = await axios.get(source.url, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36' },
+                        timeout: 15000
+                    });
                     htmlData = res.data;
                 }
                 
                 const $ = cheerio.load(htmlData);
                 
-                // 🟢 NEW: Try Selectors until one works
+                // Find Articles
                 let elements = [];
                 for (const sel of source.selectors) {
                     const found = $(sel).toArray();
                     if (found.length > 0) {
                         elements = found;
-                        // console.log(`      -> Matched selector: "${sel}" (${found.length} items)`);
                         break;
                     }
                 }
 
                 if (elements.length === 0) {
-                    console.warn(`      ❌ No items found. Check selectors for ${source.url}`);
+                    console.warn(`      ❌ No items found. (Check selectors for ${source.name})`);
                     continue;
                 }
 
                 let count = 0;
                 for (const el of elements) {
-                    if (count >= 3) break; // Max 3 per source
+                    if (count >= 3) break; // Limit 3 per source
                     
                     const title = $(el).text().trim();
-                    let link = $(el).attr('href');
-                    if (!title || !link) continue;
+                    let link = $(el).attr('href') || $(el).closest('a').attr('href'); // Handle nested
+                    
+                    if (!title || !link || title.length < 15) continue;
 
-                    // Lowercase check
+                    // Keyword Filter
                     const titleLower = title.toLowerCase();
-                    if (!source.keywords.some(k => titleLower.includes(k))) {
-                        // console.log(`      - Skip (Keyword): ${title.substring(0, 20)}...`);
-                        continue;
-                    }
+                    if (!source.keywords.some(k => titleLower.includes(k))) continue;
 
+                    // Normalize URL
                     if (!link.startsWith('http')) {
                         const base = source.base || new URL(source.url).origin;
                         link = new URL(link, base).href;
                     }
 
+                    // DB Check
                     const exists = await db.execute({ sql: "SELECT id FROM articles WHERE source_url = ?", args: [link] });
                     
                     if (exists.rows.length === 0) {
-                        console.log(`      ✅ Scrape: "${title.substring(0, 40)}..."`);
-                        const summary = await fetchArticleDetails(link, source, API_KEY);
+                        console.log(`      Processing: "${title.substring(0, 30)}..."`);
                         
-                        const formattedContent = `
-                            <p>${summary}</p>
+                        // 🟢 DEEP FETCH (Metadata)
+                        const meta = await fetchArticleDetails(link, source, API_KEY);
+                        
+                        // Construct HTML content
+                        const contentHTML = `
+                            <p>${meta.text}</p>
                             <br>
                             <a href="${link}" target="_blank" rel="nofollow" class="read-more-link" style="color:#007bff; text-decoration:none; font-weight:bold;">
-                                Read Source ↗
+                                Read Full Story at ${source.name} ↗
                             </a>
                         `;
 
+                        // 🟢 INSERT WITH METADATA
+                        // Note: We put the Author Name in 'author_display_name' if your DB has it, 
+                        // but usually the DB schema is strict. 
+                        // Trick: We will prepend the author to the content or rely on frontend parsing.
+                        // Ideally, update DB to have 'scraped_author' column.
+                        // For now, we stick to standard columns.
+                        
                         await db.execute({
                             sql: `INSERT INTO articles (title, content, category, has_photo, image_url, is_automated, source_url, status, created_at, last_activity_at)
-                                  VALUES (?, ?, ?, 0, NULL, 1, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-                            args: [title, formattedContent, category, link]
+                                  VALUES (?, ?, ?, 0, NULL, 1, ?, 1, ?, CURRENT_TIMESTAMP)`,
+                            args: [title, contentHTML, category, link, meta.date]
                         });
                         
+                        console.log(`      ✅ Saved.`);
                         count++;
                         totalAdded++;
                     }
                 }
             } catch (e) {
-                console.warn(`   Skipping ${source.url}: ${e.message}`);
+                console.warn(`   Skipping ${source.name}: ${e.message}`);
             }
         }
     }
