@@ -53,7 +53,16 @@ const SCRAPER_SOURCES = {
             selectors: ['.container__headline-text', '.cd__headline-text'],
             keywords: ['war', 'conflict'],
             useProxy: false
-        }
+        },
+        { 
+            // 🟢 NEW: AP News (Usually allows direct scraping)
+            name: 'AP World',
+            url: 'https://apnews.com/hub/world-news',
+            base: 'https://apnews.com',
+            selectors: ['.PagePromo-content a', 'h3.PagePromo-title a'],
+            keywords: ['war', 'conflict', 'gaza', 'ukraine', 'russia', 'military'],
+            useProxy: false 
+        },
     ],
     'AI': [
         { 
@@ -80,14 +89,15 @@ const SCRAPER_SOURCES = {
             selectors: ['h2 a', '.article-overlay a'], 
             keywords: ['review', 'apple', 'chip', 'android'] 
         },
-        {
-            name: 'Wired',
-            url: 'https://www.wired.com/category/gear/',
-            base: 'https://www.wired.com',
-            selectors: ['.SummaryItemHedLink-civMjp', 'h3.SummaryItemHedBase-hiCrND', 'a.SummaryItemHedLink-civMjp'],
-            keywords: ['gear', 'phone', 'laptop'],
-            useProxy: true
-        }
+{
+        name: 'Wired',
+        url: 'https://www.wired.com/category/gear/',
+        base: 'https://www.wired.com',
+        // 🟢 UPDATED SELECTOR for Wired 2026
+        selectors: ['.SummaryItemHedLink-civMjp', 'div[class*="SummaryItem"] a', 'h3 a'],
+        keywords: ['gear', 'phone', 'laptop'],
+        useProxy: true
+    }
     ]
 };
 
