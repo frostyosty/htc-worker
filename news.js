@@ -1,31 +1,26 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// ============================================================
-// 1. CONFIGURATION: THE SOURCE LIST
-// ============================================================
+// 1. SOURCES CONFIG
 const SCRAPER_SOURCES = {
-    // --- MIXED / POLITICS ---
     'Mixed': [
         { 
             name: 'AllSides',
             url: 'https://www.allsides.com/headline-roundups', 
             base: 'https://www.allsides.com', 
             selectors: ['.news-title a', 'h2 a'], 
-            keywords: ['politics', 'election', 'world'],
-            useProxy: true // Fixed 403
+            keywords: ['politics', 'news', 'world', 'election'],
+            useProxy: true
         },
         {
-            name: 'The Guardian (World)',
+            name: 'The Guardian',
             url: 'https://www.theguardian.com/world',
             base: 'https://www.theguardian.com',
-            selectors: ['.dcr-16c50tn', '.fc-item__title a', 'h3 a'],
-            keywords: ['politics', 'crisis', 'un', 'treaty'],
+            selectors: ['.fc-item__title a', 'h3 a', '[data-link-name="article"]'], // Updated selectors
+            keywords: ['politics', 'crisis', 'un', 'treaty', 'world'],
             useProxy: false
         }
     ],
-
-    // --- WARS / CONFLICT ---
     'Wars': [
         { 
             name: 'BBC World',
@@ -36,7 +31,7 @@ const SCRAPER_SOURCES = {
             useProxy: false 
         },
         { 
-            name: 'Reuters World',
+            name: 'Reuters',
             url: 'https://www.reuters.com/world/', 
             base: 'https://www.reuters.com',
             selectors: ['[data-testid="Heading"] a', '.story-card a', 'h3 a'], 
@@ -52,7 +47,7 @@ const SCRAPER_SOURCES = {
             useProxy: true
         },
         {
-            name: 'CNN World',
+            name: 'CNN',
             url: 'https://edition.cnn.com/world',
             base: 'https://edition.cnn.com',
             selectors: ['.container__headline-text', '.cd__headline-text'],
@@ -60,18 +55,16 @@ const SCRAPER_SOURCES = {
             useProxy: false
         }
     ],
-
-    // --- AI ---
     'AI': [
         { 
-            name: 'TechCrunch AI',
+            name: 'TechCrunch',
             url: 'https://techcrunch.com/category/artificial-intelligence/', 
             base: 'https://techcrunch.com',
             selectors: ['h2.post-block__title a', '.loop-card__title a'], 
             keywords: ['ai', 'gpt', 'openai', 'llm', 'model'] 
         },
         {
-            name: 'The Verge AI',
+            name: 'The Verge',
             url: 'https://www.theverge.com/ai-artificial-intelligence',
             base: 'https://www.theverge.com',
             selectors: ['h2 a', '.duet--content-cards--content-card_headline'],
@@ -79,8 +72,6 @@ const SCRAPER_SOURCES = {
             useProxy: false
         }
     ],
-
-    // --- TECH ---
     'Tech': [
         { 
             name: 'Ars Technica',
@@ -90,27 +81,25 @@ const SCRAPER_SOURCES = {
             keywords: ['review', 'apple', 'chip', 'android'] 
         },
         {
-            name: 'Wired Gear',
+            name: 'Wired',
             url: 'https://www.wired.com/category/gear/',
             base: 'https://www.wired.com',
-            selectors: ['.SummaryItemHedLink-civMjp', 'h3.SummaryItemHedBase-hiCrND'],
+            selectors: ['.SummaryItemHedLink-civMjp', 'h3.SummaryItemHedBase-hiCrND', 'a.SummaryItemHedLink-civMjp'],
             keywords: ['gear', 'phone', 'laptop'],
             useProxy: true
         }
     ]
 };
 
-// ============================================================
-// 2. HELPER: EXTRACT METADATA (Date, Author, Summary)
-// ============================================================
-async function fetchDeepDetails(url, config, API_KEY) {
+// 2. HELPER: Fetch Details (Correct Name!)
+async function fetchArticleDetails(url, config, API_KEY) {
     try {
         let html;
         const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36' };
         
         if (config.useProxy && API_KEY) {
             const res = await axios.get('http://api.scraperapi.com', {
-                params: { api_key: API_KEY, url: url, render: 'false' }, // 'false' is faster/cheaper
+                params: { api_key: API_KEY, url: url, render: 'false' },
                 timeout: 30000
             });
             html = res.data;
@@ -121,28 +110,25 @@ async function fetchDeepDetails(url, config, API_KEY) {
 
         const $ = cheerio.load(html);
         
-        // --- A. GET SUMMARY ---
-        let text = '';
-        // Try meta description first (often cleanest)
-        text = $('meta[name="description"]').attr('content') || 
-               $('meta[property="og:description"]').attr('content');
+        // A. Summary
+        let text = $('meta[name="description"]').attr('content') || 
+                   $('meta[property="og:description"]').attr('content');
         
-        // If meta failed, grab first paragraph
         if (!text || text.length < 50) {
             text = $('article p').first().text().trim() || 
                    $('.article-body p').first().text().trim() || 
                    $('main p').first().text().trim();
         }
 
-        // --- B. GET AUTHOR ---
+        // B. Author
         let author = $('meta[name="author"]').attr('content') || 
                      $('meta[property="article:author"]').attr('content') || 
                      $('.author-name').first().text().trim() ||
-                     config.name; // Fallback to Site Name
+                     $('a[rel="author"]').first().text().trim() ||
+                     config.name;
 
-        // --- C. GET DATE ---
+        // C. Date
         let date = $('meta[property="article:published_time"]').attr('content') || 
-                   $('meta[name="date"]').attr('content') || 
                    $('time').first().attr('datetime') || 
                    new Date().toISOString();
 
@@ -157,9 +143,7 @@ async function fetchDeepDetails(url, config, API_KEY) {
     }
 }
 
-// ============================================================
-// 3. MAIN RUNNER
-// ============================================================
+// 3. MAIN LOGIC
 module.exports = async function runScraper(db, API_KEY) {
     console.log("\n📰 --- STARTING NEWS SCRAPER ---");
     let totalAdded = 0;
@@ -207,34 +191,30 @@ module.exports = async function runScraper(db, API_KEY) {
 
                 let count = 0;
                 for (const el of elements) {
-                    if (count >= 3) break; // Limit 3 per source
+                    if (count >= 3) break;
                     
                     const title = $(el).text().trim();
-                    let link = $(el).attr('href') || $(el).closest('a').attr('href'); // Handle nested
+                    let link = $(el).attr('href') || $(el).closest('a').attr('href');
                     
                     if (!title || !link || title.length < 15) continue;
 
-                    // Keyword Filter
                     const titleLower = title.toLowerCase();
                     if (!source.keywords.some(k => titleLower.includes(k))) continue;
 
-                    // Normalize URL
                     if (!link.startsWith('http')) {
                         const base = source.base || new URL(source.url).origin;
                         link = new URL(link, base).href;
                     }
 
-                    // DB Check
                     const exists = await db.execute({ sql: "SELECT id FROM articles WHERE source_url = ?", args: [link] });
                     
                     if (exists.rows.length === 0) {
                         console.log(`      Processing: "${title.substring(0, 30)}..."`);
                         
-                        // 🟢 DEEP FETCH (Metadata)
+                        // 🟢 CORRECTLY CALL FUNCTION
                         const meta = await fetchArticleDetails(link, source, API_KEY);
                         
-                        // Construct HTML content
-                        const contentHTML = `
+                        const formattedContent = `
                             <p>${meta.text}</p>
                             <br>
                             <a href="${link}" target="_blank" rel="nofollow" class="read-more-link" style="color:#007bff; text-decoration:none; font-weight:bold;">
@@ -242,17 +222,11 @@ module.exports = async function runScraper(db, API_KEY) {
                             </a>
                         `;
 
-                        // 🟢 INSERT WITH METADATA
-                        // Note: We put the Author Name in 'author_display_name' if your DB has it, 
-                        // but usually the DB schema is strict. 
-                        // Trick: We will prepend the author to the content or rely on frontend parsing.
-                        // Ideally, update DB to have 'scraped_author' column.
-                        // For now, we stick to standard columns.
-                        
+                        // 🟢 INSERT WITH AUTHOR_NAME
                         await db.execute({
-                            sql: `INSERT INTO articles (title, content, category, has_photo, image_url, is_automated, source_url, status, created_at, last_activity_at)
-                                  VALUES (?, ?, ?, 0, NULL, 1, ?, 1, ?, CURRENT_TIMESTAMP)`,
-                            args: [title, contentHTML, category, link, meta.date]
+                            sql: `INSERT INTO articles (title, content, category, has_photo, image_url, is_automated, source_url, status, created_at, last_activity_at, author_name)
+                                  VALUES (?, ?, ?, 0, NULL, 1, ?, 1, ?, CURRENT_TIMESTAMP, ?)`,
+                            args: [title, formattedContent, category, link, meta.date, meta.author]
                         });
                         
                         console.log(`      ✅ Saved.`);
