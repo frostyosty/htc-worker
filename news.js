@@ -226,10 +226,6 @@ module.exports = async function runScraper(db, API_KEY) {
                         
                         const formattedContent = `
                             <p>${meta.text}</p>
-                            <br>
-                            <a href="${link}" target="_blank" rel="nofollow" class="read-more-link" style="color:#007bff; text-decoration:none; font-weight:bold;">
-                                Read Full Story at ${source.name} ↗
-                            </a>
                         `;
 
                         // 🟢 INSERT WITH AUTHOR_NAME
