@@ -118,17 +118,29 @@ async function fetchArticleDetails(url, config, API_KEY) {
             html = res.data;
         }
 
-        const $ = cheerio.load(html);
+const $ = cheerio.load(html);
         
-        // A. Summary
-        let text = $('meta[name="description"]').attr('content') || 
-                   $('meta[property="og:description"]').attr('content');
+        // --- A. GET SUMMARY (MULTIPLE PARAGRAPHS) ---
+        let textParts = [];
         
-        if (!text || text.length < 50) {
-            text = $('article p').first().text().trim() || 
-                   $('.article-body p').first().text().trim() || 
-                   $('main p').first().text().trim();
+        // Try to get the first 3 paragraphs from the content selector
+        if (config.contentSelector) {
+            $(config.contentSelector).slice(0, 3).each((i, el) => {
+                const t = $(el).text().trim();
+                if (t.length > 50) textParts.push(t);
+            });
         }
+
+        // Fallback if specific selector failed
+        if (textParts.length === 0) {
+            $('article p, main p, .article-body p').slice(0, 3).each((i, el) => {
+                const t = $(el).text().trim();
+                if (t.length > 50) textParts.push(t);
+            });
+        }
+
+        // 🟢 JOIN WITH DELIMITER
+        const fullText = textParts.join('|||');
 
         // B. Author
         let author = $('meta[name="author"]').attr('content') || 
@@ -142,8 +154,8 @@ async function fetchArticleDetails(url, config, API_KEY) {
                    $('time').first().attr('datetime') || 
                    new Date().toISOString();
 
-        return { 
-            text: text || "Click to read full story.", 
+return { 
+            text: fullText || "Click to read full story.",
             author: author || config.name, 
             date: date 
         };
