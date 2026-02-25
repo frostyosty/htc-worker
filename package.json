@@ -1,0 +1,14 @@
+{
+  "name": "htc-worker",
+  "version": "1.0.0",
+  "description": "Background worker for HTC",
+  "main": "index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "@libsql/client": "latest",
+    "imap-simple": "latest",
+    "mailparser": "latest",
+    "axios": "latest",
+    "cheerio": "latest"
+  }
+}
