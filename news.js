@@ -236,9 +236,7 @@ module.exports = async function runScraper(db, API_KEY) {
                         // 🟢 CORRECTLY CALL FUNCTION
                         const meta = await fetchArticleDetails(link, source, API_KEY);
                         
-                        const formattedContent = `
-                            <p>${meta.text}</p>
-                        `;
+const formattedContent = meta.text;
 
                         // 🟢 INSERT WITH AUTHOR_NAME
                         await db.execute({
