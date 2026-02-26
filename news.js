@@ -133,7 +133,14 @@ const $ = cheerio.load(html);
 
         // Fallback if specific selector failed
         if (textParts.length === 0) {
-            $('article p, main p, .article-body p').slice(0, 3).each((i, el) => {
+            $('article p')
+  .filter((i, el) => {
+    const t = $(el).text().trim();
+    return t.length > 80 && 
+           !t.toLowerCase().includes('read more') &&
+           !t.toLowerCase().includes('advertisement');
+  })
+  .slice(0, 3).each((i, el) => {
                 const t = $(el).text().trim();
                 if (t.length > 50) textParts.push(t);
             });
