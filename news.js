@@ -19,8 +19,34 @@ const SCRAPER_SOURCES = {
             selectors: ['.fc-item__title a', 'h3 a', '[data-link-name="article"]'], // Updated selectors
             keywords: ['politics', 'crisis', 'un', 'treaty', 'world'],
             useProxy: false
-        }
+        },
+        {
+  name: 'NPR',
+  url: 'https://www.npr.org/sections/world/',
+  base: 'https://www.npr.org',
+  selectors: ['h2 a', '.teaser a'],
+  keywords: ['politics', 'war', 'world', 'conflict'],
+  useProxy: false
+},
+{
+  name: 'Politico',
+  url: 'https://www.politico.com/news',
+  base: 'https://www.politico.com',
+  selectors: ['a[data-testid="headline"]', 'h3 a'],
+  keywords: ['election', 'policy', 'congress', 'white house'],
+  useProxy: true
+},
+        {
+  name: 'Financial Times',
+  url: 'https://www.ft.com/world',
+  base: 'https://www.ft.com',
+  selectors: ['h3 a'],
+  keywords: ['economy', 'market', 'war', 'global'],
+  useProxy: true
+}
     ],
+
+    
     'Wars': [
         { 
             name: 'BBC World',
@@ -63,6 +89,14 @@ const SCRAPER_SOURCES = {
             keywords: ['war', 'conflict', 'gaza', 'ukraine', 'russia', 'military'],
             useProxy: false 
         },
+        {
+  name: 'Sky News',
+  url: 'https://news.sky.com/world',
+  base: 'https://news.sky.com',
+  selectors: ['h3 a'],
+  keywords: ['war', 'conflict', 'military', 'attack'],
+  useProxy: true
+},
     ],
     'AI': [
         { 
@@ -97,7 +131,15 @@ const SCRAPER_SOURCES = {
         selectors: ['.SummaryItemHedLink-civMjp', 'div[class*="SummaryItem"] a', 'h3 a'],
         keywords: ['gear', 'phone', 'laptop'],
         useProxy: true
-    }
+    },
+        {
+  name: 'Bloomberg Tech',
+  url: 'https://www.bloomberg.com/technology',
+  base: 'https://www.bloomberg.com',
+  selectors: ['h3 a'],
+  keywords: ['ai', 'chip', 'apple', 'google', 'tech'],
+  useProxy: true
+}
     ]
 };
 
@@ -173,94 +215,143 @@ return {
 }
 
 // 3. MAIN LOGIC
+// ./scraper.js
+const fs = require('fs');
+const path = require('path');
+
+// Track last run times for proxy sources
+const LAST_PROXY_RUN_FILE = path.resolve(__dirname, 'last_proxy_run.json');
+
+function getLastProxyRun() {
+  try {
+    const data = fs.readFileSync(LAST_PROXY_RUN_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return {};
+  }
+}
+
+function setLastProxyRun(obj) {
+  fs.writeFileSync(LAST_PROXY_RUN_FILE, JSON.stringify(obj), 'utf-8');
+}
+
+// MAIN LOGIC
 module.exports = async function runScraper(db, API_KEY) {
-    console.log("\n📰 --- STARTING NEWS SCRAPER ---");
-    let totalAdded = 0;
+  console.log("\n📰 --- STARTING NEWS SCRAPER ---");
 
-    for (const category in SCRAPER_SOURCES) {
-        console.log(`\n📂 Category: ${category}`);
-        
-        for (const source of SCRAPER_SOURCES[category]) {
-            try {
-                let htmlData;
-                
-                // Fetch List Page
-                if (source.useProxy && API_KEY) {
-                    console.log(`   🛡️ Proxy: ${source.url}`);
-                    const res = await axios.get('http://api.scraperapi.com', {
-                        params: { api_key: API_KEY, url: source.url },
-                        timeout: 40000
-                    });
-                    htmlData = res.data;
-                } else {
-                    console.log(`   ⚡ Direct: ${source.url}`);
-                    const res = await axios.get(source.url, {
-                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36' },
-                        timeout: 15000
-                    });
-                    htmlData = res.data;
-                }
-                
-                const $ = cheerio.load(htmlData);
-                
-                // Find Articles
-                let elements = [];
-                for (const sel of source.selectors) {
-                    const found = $(sel).toArray();
-                    if (found.length > 0) {
-                        elements = found;
-                        break;
-                    }
-                }
+  let totalAdded = 0;
+  const now = Date.now();
+  const lastRunTimes = getLastProxyRun();
 
-                if (elements.length === 0) {
-                    console.warn(`      ❌ No items found. (Check selectors for ${source.name})`);
-                    continue;
-                }
+  for (const category in SCRAPER_SOURCES) {
+    console.log(`\n📂 Category: ${category}`);
 
-                let count = 0;
-                for (const el of elements) {
-                    if (count >= 3) break;
-                    
-                    const title = $(el).text().trim();
-                    let link = $(el).attr('href') || $(el).closest('a').attr('href');
-                    
-                    if (!title || !link || title.length < 15) continue;
-
-                    const titleLower = title.toLowerCase();
-                    if (!source.keywords.some(k => titleLower.includes(k))) continue;
-
-                    if (!link.startsWith('http')) {
-                        const base = source.base || new URL(source.url).origin;
-                        link = new URL(link, base).href;
-                    }
-
-                    const exists = await db.execute({ sql: "SELECT id FROM articles WHERE source_url = ?", args: [link] });
-                    
-                    if (exists.rows.length === 0) {
-                        console.log(`      Processing: "${title.substring(0, 30)}..."`);
-                        
-                        // 🟢 CORRECTLY CALL FUNCTION
-                        const meta = await fetchArticleDetails(link, source, API_KEY);
-                        
-const formattedContent = meta.text;
-
-                        // 🟢 INSERT WITH AUTHOR_NAME
-                        await db.execute({
-                            sql: `INSERT INTO articles (title, content, category, has_photo, image_url, is_automated, source_url, status, created_at, last_activity_at, author_name)
-                                  VALUES (?, ?, ?, 0, NULL, 1, ?, 1, ?, CURRENT_TIMESTAMP, ?)`,
-                            args: [title, formattedContent, category, link, meta.date, meta.author]
-                        });
-                        
-                        console.log(`      ✅ Saved.`);
-                        count++;
-                        totalAdded++;
-                    }
-                }
-            } catch (e) {
-                console.warn(`   Skipping ${source.name}: ${e.message}`);
-            }
+    for (const source of SCRAPER_SOURCES[category]) {
+      try {
+        // --- 1. SKIP proxy-heavy sources if already run today ---
+        if (source.useProxy) {
+          const lastRun = lastRunTimes[source.name] || 0;
+          const ONE_DAY = 1000 * 60 * 60 * 24;
+          if (now - lastRun < ONE_DAY) {
+            console.log(`   ⏳ Skipping proxy source today: ${source.name}`);
+            continue;
+          }
         }
+
+        let htmlData;
+
+        // --- 2. FETCH LIST PAGE ---
+        if (source.useProxy && API_KEY) {
+          console.log(`   🛡️ Proxy fetch: ${source.url}`);
+          const res = await axios.get('http://api.scraperapi.com', {
+            params: { api_key: API_KEY, url: source.url },
+            timeout: 40000
+          });
+          htmlData = res.data;
+        } else {
+          console.log(`   ⚡ Direct fetch: ${source.url}`);
+          const res = await axios.get(source.url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36' },
+            timeout: 15000
+          });
+          htmlData = res.data;
+        }
+
+        const $ = cheerio.load(htmlData);
+
+        // --- 3. FIND ARTICLES ---
+        let elements = [];
+        for (const sel of source.selectors) {
+          const found = $(sel).toArray();
+          if (found.length > 0) {
+            elements = found;
+            break;
+          }
+        }
+
+        if (elements.length === 0) {
+          console.warn(`      ❌ No items found for ${source.name} (check selectors)`);
+          continue;
+        }
+
+        // --- 4. PROCESS ARTICLES ---
+        let count = 0;
+        for (const el of elements) {
+          if (count >= 2) break; // limit to 2 articles per source per run
+
+          const title = $(el).text().trim();
+          let link = $(el).attr('href') || $(el).closest('a').attr('href');
+
+          if (!title || !link || title.length < 15) continue;
+
+          const titleLower = title.toLowerCase();
+          if (!source.keywords.some(k => titleLower.includes(k))) continue;
+
+          if (!link.startsWith('http')) {
+            const base = source.base || new URL(source.url).origin;
+            link = new URL(link, base).href;
+          }
+
+          // --- 5. DUPLICATE CHECK BEFORE FETCH ---
+          const exists = await db.execute({
+            sql: "SELECT 1 FROM articles WHERE source_url = ? LIMIT 1",
+            args: [link]
+          });
+          if (exists.rows.length > 0) continue;
+
+          console.log(`      Processing: "${title.substring(0, 50)}..."`);
+
+          // --- 6. FETCH ARTICLE DETAILS ---
+          const meta = await fetchArticleDetails(link, source, API_KEY);
+
+          // --- 7. CLEAN CONTENT ---
+          const formattedContent = meta.text.replace(/<\/?p[^>]*>/gi, '').trim();
+
+          // --- 8. INSERT INTO DB ---
+          await db.execute({
+            sql: `
+              INSERT INTO articles 
+              (title, content, category, has_photo, image_url, is_automated, source_url, status, created_at, last_activity_at, author_name)
+              VALUES (?, ?, ?, 0, NULL, 1, ?, 1, ?, CURRENT_TIMESTAMP, ?)`,
+            args: [title, formattedContent, category, link, meta.date, meta.author]
+          });
+
+          console.log(`      ✅ Saved.`);
+          count++;
+          totalAdded++;
+        }
+
+        // --- 9. UPDATE LAST RUN FOR PROXY SOURCES ---
+        if (source.useProxy) lastRunTimes[source.name] = now;
+
+      } catch (e) {
+        console.warn(`   Skipping ${source.name}: ${e.message}`);
+      }
     }
-    console.log(`\n📰 Scraper finished. Added ${totalAdded} articles.`);
+  }
+
+  // --- 10. SAVE LAST RUN TIMES ---
+  setLastProxyRun(lastRunTimes);
+
+  console.log(`\n📰 Scraper finished. Added ${totalAdded} articles.`);
 };
