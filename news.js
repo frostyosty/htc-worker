@@ -161,35 +161,53 @@ async function fetchArticleDetails(url, config, API_KEY) {
         }
 
 const $ = cheerio.load(html);
-        
-        // --- A. GET SUMMARY (MULTIPLE PARAGRAPHS) ---
-        let textParts = [];
-        
-        // Try to get the first 3 paragraphs from the content selector
-        if (config.contentSelector) {
-            $(config.contentSelector).slice(0, 3).each((i, el) => {
-                const t = $(el).text().trim();
-                if (t.length > 50) textParts.push(t);
-            });
-        }
+        function extractBestParagraphs($, config) {
+    const strategies = [];
 
-        // Fallback if specific selector failed
-        if (textParts.length === 0) {
-            $('article p')
-  .filter((i, el) => {
-    const t = $(el).text().trim();
-    return t.length > 80 && 
-           !t.toLowerCase().includes('read more') &&
-           !t.toLowerCase().includes('advertisement');
-  })
-  .slice(0, 3).each((i, el) => {
-                const t = $(el).text().trim();
-                if (t.length > 50) textParts.push(t);
-            });
-        }
+    // 1️⃣ Site-specific selector (if provided)
+    if (config.contentSelector) {
+        strategies.push(() => $(config.contentSelector).toArray());
+    }
 
-        // 🟢 JOIN WITH DELIMITER
-        const fullText = textParts.join('|||');
+    // 2️⃣ Common semantic containers
+    strategies.push(() => $('article p').toArray());
+    strategies.push(() => $('main p').toArray());
+    strategies.push(() => $('[role="main"] p').toArray());
+
+    // 3️⃣ Modern news structures (BBC / AP style)
+    strategies.push(() => $('div[data-component="text-block"] p').toArray());
+    strategies.push(() => $('div[class*="RichText"] p').toArray());
+    strategies.push(() => $('div[class*="ArticleBody"] p').toArray());
+
+    // 4️⃣ Final fallback — all paragraphs
+    strategies.push(() => $('p').toArray());
+
+    let best = [];
+    let bestScore = 0;
+
+    for (const strategy of strategies) {
+        const paragraphs = strategy()
+            .map(el => $(el).text().trim())
+            .filter(t =>
+                t.length > 80 &&
+                !t.toLowerCase().includes('read more') &&
+                !t.toLowerCase().includes('advertisement') &&
+                !t.toLowerCase().includes('cookie') &&
+                !t.toLowerCase().includes('subscribe')
+            );
+
+        const score = paragraphs.join('').length; // total character count
+
+        if (score > bestScore) {
+            bestScore = score;
+            best = paragraphs;
+        }
+    }
+
+    return best.slice(0, 5); // limit to first 5 paragraphs
+}
+        const textParts = extractBestParagraphs($, config);
+const fullText = textParts.join('|||');
 
         // B. Author
         let author = $('meta[name="author"]').attr('content') || 
