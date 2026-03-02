@@ -300,17 +300,30 @@ module.exports = async function runScraper(db, API_KEY) {
           if (count >= 2) break; // limit to 2 articles per source per run
 
           const title = $(el).text().trim();
-          let link = $(el).attr('href') || $(el).closest('a').attr('href');
+let link = $(el).attr('href') || $(el).closest('a').attr('href');
 
-          if (!title || !link || title.length < 15) continue;
+if (!title || !link || title.length < 15) continue;
 
-          const titleLower = title.toLowerCase();
-          if (!source.keywords.some(k => titleLower.includes(k))) continue;
+const titleLower = title.toLowerCase();
+if (!source.keywords.some(k => titleLower.includes(k))) continue;
 
-          if (!link.startsWith('http')) {
-            const base = source.base || new URL(source.url).origin;
-            link = new URL(link, base).href;
-          }
+if (!link.startsWith('http')) {
+  const base = source.base || new URL(source.url).origin;
+  link = new URL(link, base).href;
+}
+
+// 🔴 ADD THIS BLOCK HERE
+if (source.name === 'BBC World') {
+  if (
+    link.includes('/videos/') ||
+    link.includes('/live/') ||
+    link.includes('/av/') ||
+    link.includes('/reel/')
+  ) {
+    console.log(`      ⏭ Skipping non-article BBC link: ${link}`);
+    continue;
+  }
+}
 
           // --- 5. DUPLICATE CHECK BEFORE FETCH ---
           const exists = await db.execute({
