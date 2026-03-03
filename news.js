@@ -211,7 +211,7 @@ const $ = cheerio.load(html);
     );
 });
 
-        const score = paragraphs.join('').length; // total character count
+const score = paragraphs.length * 1000 + paragraphs.join('').length;
 
         if (score > bestScore) {
             bestScore = score;
