@@ -72,14 +72,15 @@ const SCRAPER_SOURCES = {
             keywords: ['war', 'bomb', 'killed', 'strike'],
             useProxy: true
         },
-        {
-            name: 'CNN',
-            url: 'https://edition.cnn.com/world',
-            base: 'https://edition.cnn.com',
-            selectors: ['.container__headline-text', '.cd__headline-text'],
-            keywords: ['war', 'conflict'],
-            useProxy: false
-        },
+{
+  name: 'CNN',
+  url: 'https://edition.cnn.com/world',
+  base: 'https://edition.cnn.com',
+  selectors: ['.container__headline-text', '.cd__headline-text'],
+  keywords: ['war', 'conflict'],
+  useProxy: true,
+  render: true
+},
         { 
             // 🟢 NEW: AP News (Usually allows direct scraping)
             name: 'AP World',
@@ -151,7 +152,11 @@ async function fetchArticleDetails(url, config, API_KEY) {
         
         if (config.useProxy && API_KEY) {
             const res = await axios.get('http://api.scraperapi.com', {
-                params: { api_key: API_KEY, url: url, render: 'false' },
+                params: { 
+    api_key: API_KEY, 
+    url: url, 
+    render: config.render ? 'true' : 'false'
+},
                 timeout: 30000
             });
             html = res.data;
@@ -188,13 +193,23 @@ const $ = cheerio.load(html);
     for (const strategy of strategies) {
         const paragraphs = strategy()
             .map(el => $(el).text().trim())
-            .filter(t =>
-                t.length > 80 &&
-                !t.toLowerCase().includes('read more') &&
-                !t.toLowerCase().includes('advertisement') &&
-                !t.toLowerCase().includes('cookie') &&
-                !t.toLowerCase().includes('subscribe')
-            );
+.filter(t => {
+    const lower = t.toLowerCase();
+
+    return (
+        t.length > 100 &&
+        !lower.includes('read more') &&
+        !lower.includes('advertisement') &&
+        !lower.includes('cookie') &&
+        !lower.includes('subscribe') &&
+        !lower.includes('all rights reserved') &&
+        !lower.includes('warner bros') &&
+        !lower.includes('cable news network') &&
+        !lower.includes('terms of use') &&
+        !lower.includes('privacy policy') &&
+        !lower.startsWith('©')
+    );
+});
 
         const score = paragraphs.join('').length; // total character count
 
@@ -204,9 +219,15 @@ const $ = cheerio.load(html);
         }
     }
 
-    return best.slice(0, 5); // limit to first 5 paragraphs
+    return best.slice(0, 3); // limit to first 3 paragraphs
 }
-        const textParts = extractBestParagraphs($, config);
+const textParts = extractBestParagraphs($, config);
+
+// ❌ If fewer than 3 real paragraphs → reject article
+if (!textParts || textParts.length < 3) {
+    return null;
+}
+
 const fullText = textParts.join('|||');
 
         // B. Author
@@ -353,7 +374,12 @@ if (source.name === 'BBC World') {
           console.log(`      Processing: "${title.substring(0, 50)}..."`);
 
           // --- 6. FETCH ARTICLE DETAILS ---
-          const meta = await fetchArticleDetails(link, source, API_KEY);
+const meta = await fetchArticleDetails(link, source, API_KEY);
+
+if (!meta || !meta.text) {
+    console.log(`      ⏭ Skipping (not enough content).`);
+    continue;
+}
 
           // --- 7. CLEAN CONTENT ---
           const formattedContent = meta.text.replace(/<\/?p[^>]*>/gi, '').trim();
