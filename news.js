@@ -248,9 +248,10 @@ return {
             date: date 
         };
 
-    } catch (e) {
-        return { text: "Click to read full story.", author: config.name, date: new Date().toISOString() };
-    }
+} catch (e) {
+    console.log(`        ⚠️ Failed to extract article: ${url}`);
+    return null;
+}
 }
 
 // 3. MAIN LOGIC
