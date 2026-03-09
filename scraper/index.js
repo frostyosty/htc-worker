@@ -1,4 +1,5 @@
-const sources = require('./scraper/sources');
+const sources = require('../scraper/sources/index.js');
+
 const fetchPage = require("./services/fetchPage");
 const extractArticle = require("./services/extractArticle");
 const isDuplicate = require("./services/duplicateCheck");
