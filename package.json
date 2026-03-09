@@ -6,9 +6,10 @@
   "type": "commonjs",
   "dependencies": {
     "@libsql/client": "latest",
+    "axios": "latest",
+    "cheerio": "latest",
     "imap-simple": "latest",
     "mailparser": "latest",
-    "axios": "latest",
-    "cheerio": "latest"
+    "string-similarity": "^4.0.4"
   }
 }
