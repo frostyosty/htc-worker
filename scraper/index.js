@@ -1,51 +1,117 @@
-const sources = require('../scraper/sources/index.js');
-
-const fetchPage = require("./services/fetchPage");
-const extractArticle = require("./services/extractArticle");
-const isDuplicate = require("./services/duplicateCheck");
+const sources = require("./sources");
 const selectSources = require("./utils/selectSources");
+const rankSources = require("./utils/rankSources");
+const createBudget = require("./utils/budget");
 
-module.exports = async function runScraper(db, API_KEY){
+const scrapeSource = require("./services/scrapeSource");
+const ingestArticle = require("./services/ingestArticle");
+
+module.exports = async function runScraper(db,API_KEY){
 
   let totalAdded = 0;
 
-  for (const category in sources){
+  for(const category in sources){
 
-    const selected = selectSources(sources[category],6);
+    console.log(`\n===== CATEGORY: ${category} =====`);
 
-    for (const source of selected){
+    const budget = createBudget(15);
 
-      const html = await fetchPage(source.url, source, API_KEY);
+    const ranked = rankSources(sources[category]);
 
-      const $ = cheerio.load(html);
+    const selected = selectSources(ranked,3);
 
-      for (const el of $(source.selectors[0]).toArray()){
+    console.log(
+      "Sources:",
+      selected.map(s=>`${s.name} (${s.score})`).join(", ")
+    );
 
-        const title = $(el).text().trim();
+    for(const source of selected){
 
-        if (await isDuplicate(db,title)) {
-          console.log("⏭ Similar article exists");
-          continue;
+      if(budget.reached()){
+
+        console.log("🎯 Category budget reached");
+        break;
+
+      }
+
+      console.log(`\n--- ${source.name} ---`);
+
+      const {elements,$,usedRSS} =
+        await scrapeSource(source,API_KEY);
+
+      if(elements.length === 0){
+
+        console.log("❌ No articles");
+        source.freshness = -1;
+        continue;
+
+      }
+
+      let added = 0;
+      let duplicates = 0;
+
+      for(const el of elements){
+
+        if(budget.reached()) break;
+
+        let title;
+        let link;
+
+        if(el.rss){
+
+          title = el.title;
+          link = el.link;
+
+        }else{
+
+          title = $(el).text().trim();
+          link = $(el).attr("href");
+
         }
 
-        const link = $(el).attr("href");
+        if(!title || title.length < 10) continue;
+        if(!link) continue;
 
-        const articleHtml = await fetchPage(link,source,API_KEY);
+        if(link.startsWith("/")){
 
-        const meta = extractArticle(articleHtml,source);
+          const base = new URL(source.url).origin;
+          link = base + link;
 
-        if (!meta) continue;
+        }
 
-        await db.execute({
-          sql:`INSERT INTO articles (title,content,category)
-               VALUES (?,?,?)`,
-          args:[title,meta.text,category]
-        });
+        const result =
+          await ingestArticle(db,source,title,link,category,API_KEY);
 
-        totalAdded++;
+        if(result.added){
+
+          added++;
+          totalAdded++;
+          budget.add();
+
+        }
+
+        if(result.duplicate) duplicates++;
+
       }
+
+      source.success = (source.success||0)+added;
+
+      if(added>0) source.freshness = 2;
+      else if(duplicates>3) source.freshness = -1;
+      else source.freshness = 0;
+
+      console.log(
+        `RESULT added:${added} dup:${duplicates}`
+      );
+
+      if(usedRSS)
+        console.log(`⚠ ${source.name} used RSS`);
+
     }
+
   }
 
-  console.log(`Added ${totalAdded}`);
+  console.log(`\n===== SCRAPER COMPLETE =====`);
+  console.log(`Total articles added: ${totalAdded}`);
+
 };

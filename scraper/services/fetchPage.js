@@ -6,20 +6,38 @@ module.exports = async function fetchPage(url, config, API_KEY) {
     "User-Agent": "Mozilla/5.0 Chrome/120 Safari/537"
   };
 
-  if (config.useProxy && API_KEY) {
-
-    const res = await axios.get("http://api.scraperapi.com", {
-      params: {
-        api_key: API_KEY,
-        url,
-        render: config.render ? "true" : "false"
-      },
-      timeout: 30000
-    });
-
+  // --- TRY DIRECT FIRST ---
+  try {
+    const res = await axios.get(url, { headers, timeout: 15000 });
     return res.data;
+  } catch (err) {
+    console.log("Direct fetch blocked → trying proxy");
   }
 
-  const res = await axios.get(url, { headers, timeout: 15000 });
-  return res.data;
-}; 
+  // --- FALLBACK TO SCRAPERAPI ---
+  if (config.useProxy && API_KEY) {
+    try {
+
+      const res = await axios.get("http://api.scraperapi.com", {
+        params: {
+          api_key: API_KEY,
+          url,
+          render: config.render ? "true" : "false"
+        },
+        timeout: 30000
+      });
+
+      return res.data;
+
+    } catch (err) {
+
+      if (err.response?.status === 403) {
+        console.log("⚠ ScraperAPI credits exhausted");
+      }
+
+      return null;
+    }
+  }
+
+  return null;
+};
