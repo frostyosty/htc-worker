@@ -25,14 +25,10 @@ module.exports = async function runScraper(db,API_KEY){
       selected.map(s=>`${s.name} (${s.score})`).join(", ")
     );
 
-    for(const source of selected){
+    // 🔥 RUN SOURCES IN PARALLEL
+    await Promise.all(selected.map(async (source)=>{
 
-      if(budget.reached()){
-
-        console.log("🎯 Category budget reached");
-        break;
-
-      }
+      if(budget.reached()) return;
 
       console.log(`\n--- ${source.name} ---`);
 
@@ -43,7 +39,7 @@ module.exports = async function runScraper(db,API_KEY){
 
         console.log("❌ No articles");
         source.freshness = -1;
-        continue;
+        return;
 
       }
 
@@ -107,7 +103,7 @@ module.exports = async function runScraper(db,API_KEY){
       if(usedRSS)
         console.log(`⚠ ${source.name} used RSS`);
 
-    }
+    }));
 
   }
 
