@@ -4,7 +4,8 @@ const extractArticle = require("./extractArticle");
 
 module.exports = async function ingestArticle(db,source,title,link,category,API_KEY){
 
-  if(await isDuplicate(db,link)) return {duplicate:true};
+  if(await isDuplicate(db,title,link))
+    return {duplicate:true};
 
   const html = await fetchPage(link,source,API_KEY);
   if(!html) return {failed:true};
@@ -13,9 +14,12 @@ module.exports = async function ingestArticle(db,source,title,link,category,API_
   if(!meta) return {failed:true};
 
   await db.execute({
-    sql:`INSERT INTO articles (title,content,category)
-         VALUES (?,?,?)`,
-    args:[title,meta.text,category]
+    sql: `
+      INSERT INTO articles
+      (title,content,category,source_url,created_at)
+      VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+    `,
+    args: [title,meta.text,category,link]
   });
 
   return {added:true};
