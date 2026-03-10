@@ -4,7 +4,7 @@ const extractArticle = require("./extractArticle");
 
 module.exports = async function ingestArticle(db,source,title,link,category,API_KEY){
 
-  if(await isDuplicate(db,title)) return {duplicate:true};
+  if(await isDuplicate(db,link)) return {duplicate:true};
 
   const html = await fetchPage(link,source,API_KEY);
   if(!html) return {failed:true};
