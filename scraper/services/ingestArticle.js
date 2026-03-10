@@ -11,15 +11,22 @@ module.exports = async function ingestArticle(db,source,title,link,category,API_
   if(!html) return {failed:true};
 
   const meta = extractArticle(html,source);
-  if(!meta) return {failed:true};
+  if(!meta || !meta.text) return {failed:true};
 
   await db.execute({
-    sql: `
+    sql:`
       INSERT INTO articles
-      (title,content,category,source_url,created_at)
-      VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+      (title,content,category,source_url,image_url,has_photo,created_at)
+      VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)
     `,
-    args: [title,meta.text,category,link]
+    args:[
+      title,
+      meta.text,
+      category,
+      link,
+      meta.image || null,
+      meta.image ? 1 : 0
+    ]
   });
 
   return {added:true};
