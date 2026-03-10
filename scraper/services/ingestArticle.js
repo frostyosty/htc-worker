@@ -19,14 +19,14 @@ module.exports = async function ingestArticle(db,source,title,link,category,API_
       (title,content,category,source_url,image_url,has_photo,created_at)
       VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)
     `,
-    args:[
-      title,
-      meta.text,
-      category,
-      link,
-      meta.image || null,
-      meta.image ? 1 : 0
-    ]
+args:[
+  title,
+  meta.text,
+  category.toLowerCase(),
+  link,
+  meta.image || null,
+  meta.image ? 1 : 0
+]
   });
 
   return {added:true};
