@@ -1,28 +1,57 @@
-const fetchRSS = require("./fetchRSS");
-
-const RSS_CANDIDATES = [
-  "/feed",
-  "/rss",
-  "/rss.xml",
-  "/atom.xml"
+const RSS_PATHS = [
+"/feed",
+"/rss",
+"/rss.xml",
+"/atom.xml",
+"/atom",
+"/feeds",
+"/feeds/posts/default",
+"/rss/home",
+"/rss/latest",
+"/rss/news",
+"/rss/world",
+"/rss/politics",
+"/rss/technology",
+"/rss/tech",
+"/news/rss",
+"/news/feed",
+"/news/rss.xml",
+"/blog/rss",
+"/blog/feed",
+"/index.xml",
+"/feed.xml",
+"/rss/latest.xml",
+"/rss/articles",
+"/rss/topstories",
+"/rss/breaking",
+"/rss/headlines",
+"/rss/latest-news",
+"/feeds/rss",
+"/feeds/rss.xml"
 ];
 
 module.exports = async function discoverRSS(baseUrl){
 
-  const origin = new URL(baseUrl).origin;
+  for(const path of RSS_PATHS){
 
-  for(const path of RSS_CANDIDATES){
+    try{
 
-    const url = origin + path;
+      const url = new URL(path,baseUrl).href;
 
-    const items = await fetchRSS(url);
+      const res = await fetch(url,{timeout:3000});
 
-    if(items && items.length > 0){
+      if(!res.ok) continue;
 
-      console.log(`✅ RSS discovered: ${url}`);
-      return url;
+      const text = await res.text();
 
-    }
+      if(text.includes("<rss") || text.includes("<feed")){
+
+        console.log("✅ RSS discovered:",url);
+        return url;
+
+      }
+
+    }catch(e){}
 
   }
 

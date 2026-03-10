@@ -23,6 +23,25 @@ module.exports = async function scrapeSource(source,API_KEY){
 
       console.log(`HTML found ${elements.length}`);
 
+      // NEW: detect RSS in page header
+      if(!source.rss){
+
+        const feed =
+          $('link[type="application/rss+xml"]').attr("href") ||
+          $('link[type="application/atom+xml"]').attr("href");
+
+        if(feed){
+
+          source.rss = feed.startsWith("http")
+            ? feed
+            : new URL(feed,source.url).href;
+
+          console.log("🔎 RSS found in HTML:",source.rss);
+
+        }
+
+      }
+
     }catch(e){
 
       console.log("Cheerio failed");
@@ -31,21 +50,37 @@ module.exports = async function scrapeSource(source,API_KEY){
 
   }
 
+  // SUPPORT MULTIPLE RSS FEEDS
   if(elements.length === 0 && source.rss){
 
-    usedRSS = true;
+    const feeds = Array.isArray(source.rss)
+      ? source.rss
+      : [source.rss];
 
-    const items = await fetchRSS(source.rss);
+    for(const feed of feeds){
 
-    elements = items.map(i=>({
-      rss:true,
-      title:i.title,
-      link:i.link
-    }));
+      const items = await fetchRSS(feed);
+
+      if(items.length){
+
+        usedRSS = true;
+
+        elements = items.map(i=>({
+          rss:true,
+          title:i.title,
+          link:i.link
+        }));
+
+        break;
+
+      }
+
+    }
 
   }
 
-  if(elements.length === 0 && !source.rss){
+  // DISCOVER RSS
+  if(elements.length === 0){
 
     const discovered = await discoverRSS(source.url);
 
@@ -55,13 +90,17 @@ module.exports = async function scrapeSource(source,API_KEY){
 
       const items = await fetchRSS(discovered);
 
-      elements = items.map(i=>({
-        rss:true,
-        title:i.title,
-        link:i.link
-      }));
+      if(items.length){
 
-      usedRSS = true;
+        usedRSS = true;
+
+        elements = items.map(i=>({
+          rss:true,
+          title:i.title,
+          link:i.link
+        }));
+
+      }
 
     }
 

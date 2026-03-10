@@ -4,6 +4,9 @@ module.exports = [
     name: 'TechCrunch',
     url: 'https://techcrunch.com/category/artificial-intelligence/', 
     base: 'https://techcrunch.com',
+    rss: [
+      'https://techcrunch.com/feed'
+    ],
     selectors: ['h2.post-block__title a', '.loop-card__title a'], 
     keywords: ['ai', 'gpt', 'openai', 'llm', 'model'],
     weight: 2
@@ -12,6 +15,9 @@ module.exports = [
     name: 'The Verge',
     url: 'https://www.theverge.com/ai-artificial-intelligence',
     base: 'https://www.theverge.com',
+    rss: [
+      'https://www.theverge.com/rss/index.xml'
+    ],
     selectors: ['h2 a', '.duet--content-cards--content-card_headline'],
     keywords: ['ai', 'chatgpt', 'google', 'gemini'],
     useProxy: false,
@@ -21,6 +27,9 @@ module.exports = [
     name: 'MIT Technology Review',
     url: 'https://www.technologyreview.com/ai/',
     base: 'https://www.technologyreview.com',
+    rss: [
+      'https://www.technologyreview.com/feed'
+    ],
     selectors: ['h3 a', '.river__hed-link'],
     keywords: ['ai', 'machine learning', 'gpt', 'neural network'],
     useProxy: false,
@@ -30,6 +39,9 @@ module.exports = [
     name: 'VentureBeat AI',
     url: 'https://venturebeat.com/category/ai/',
     base: 'https://venturebeat.com',
+    rss: [
+      'https://venturebeat.com/feed'
+    ],
     selectors: ['h2.entry-title a', '.article-title a'],
     keywords: ['ai', 'gpt', 'llm', 'machine learning'],
     useProxy: false,
