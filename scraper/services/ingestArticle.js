@@ -13,24 +13,40 @@ module.exports = async function ingestArticle(db, source, title, link, category,
   const meta = extractArticle(html, source);
   if(!meta || !meta.text) return {failed:true};
 
-  // 🛠️ FIX: Remove consecutive duplicate paragraphs (Fixes double image captions)
-  // Split by newlines, |||, or HTML tags depending on how your text is formatted
-  let paragraphs = meta.text.split(/\n|\|\|\||<br\s*\/?>|<\/?p>/);
+  // 🔥 THE PRIMO SCRAPER TEXT CLEANER 🔥
   
-  let cleanedParagraphs = paragraphs.filter((line, index, arr) => {
-    const trimmed = line.trim();
-    if (!trimmed) return false; // Remove empty lines
+  // 1. Normalize ALL line breaks, <br>, and <p> tags into exactly "|||"
+  let normalizedText = meta.text
+    .replace(/<\/?p>/gi, '|||')       // Turn HTML paragraphs into |||
+    .replace(/<br\s*\/?>/gi, '|||')   // Turn HTML breaks into |||
+    .replace(/\n+/g, '|||')           // Turn actual newlines into |||
+    .replace(/\|\|\|+/g, '|||');      // Collapse multiple ||| into a single |||
+
+  // 2. Filter the chunks
+  let chunks = normalizedText.split('|||');
+  
+  let cleanedChunks = chunks.filter((text, index, arr) => {
+    const trimmed = text.trim();
     
-    // If this line is identical to the previous line, filter it out
-    if (index > 0 && arr[index - 1].trim() === trimmed) {
-      return false;
-    }
+    // Remove empty chunks
+    if (!trimmed) return false; 
+    
+    // Pro-tip: Remove tiny garbage chunks (like "Share", "By AP", etc.)
+    if (trimmed.length < 10 && !trimmed.includes('?')) return false;
+
+    // Remove consecutive duplicates (Fixes the AP News double image caption!)
+    if (index > 0 && arr[index - 1].trim() === trimmed) return false;
+    
     return true;
-  });
+  }).map(t => t.trim());
 
-  // Rejoin with your preferred separator (using double newline for spacing)
-  let finalCleanText = cleanedParagraphs.join('\n\n');
+  // 3. Rejoin cleanly for the frontend
+  let finalCleanText = cleanedChunks.join('|||');
 
+  // Skip if after cleaning, there's no real content left
+  if(finalCleanText.length < 50) return {failed:true};
+
+  // 4. Insert into database
   await db.execute({
     sql:`
       INSERT INTO articles
@@ -39,7 +55,7 @@ module.exports = async function ingestArticle(db, source, title, link, category,
     `,
     args:[
       title,
-      finalCleanText, // <-- Use the cleaned text here
+      finalCleanText, // <-- Use the newly formatted text
       category,
       link,
       meta.image || null,
