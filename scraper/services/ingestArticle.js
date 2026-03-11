@@ -11,9 +11,26 @@ module.exports = async function ingestArticle(db, source, title, link, category,
   if(!html) return {failed: true};
 
   const meta = extractArticle(html, source);
-  if(!meta || !meta.text) return {failed: true};
+  if(!meta || !meta.text) return {failed:true};
 
-  // 🔴 FIX: Added status, is_automated, and removed .toLowerCase() from category
+  // 🛠️ FIX: Remove consecutive duplicate paragraphs (Fixes double image captions)
+  // Split by newlines, |||, or HTML tags depending on how your text is formatted
+  let paragraphs = meta.text.split(/\n|\|\|\||<br\s*\/?>|<\/?p>/);
+  
+  let cleanedParagraphs = paragraphs.filter((line, index, arr) => {
+    const trimmed = line.trim();
+    if (!trimmed) return false; // Remove empty lines
+    
+    // If this line is identical to the previous line, filter it out
+    if (index > 0 && arr[index - 1].trim() === trimmed) {
+      return false;
+    }
+    return true;
+  });
+
+  // Rejoin with your preferred separator (using double newline for spacing)
+  let finalCleanText = cleanedParagraphs.join('\n\n');
+
   await db.execute({
     sql:`
       INSERT INTO articles
@@ -22,8 +39,8 @@ module.exports = async function ingestArticle(db, source, title, link, category,
     `,
     args:[
       title,
-      meta.text,
-      category, // Ensure this matches exactly what the frontend dropdown/tabs expect (e.g. "AI" not "ai")
+      finalCleanText, // <-- Use the cleaned text here
+      category,
       link,
       meta.image || null,
       meta.image ? 1 : 0
