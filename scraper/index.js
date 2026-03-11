@@ -8,33 +8,21 @@ const ingestArticle = require("./services/ingestArticle");
 
 module.exports = async function runScraper(db, API_KEY){
 
-  // 🔥 1. THE SMART PACER ALGORITHM 🔥
-  const MONTHLY_API_LIMIT = 1000; // <-- Put your scraper's free tier limit here!
-  const RUNS_PER_DAY = 1;         // Change to 2 if you run the cron twice a day
+  // 🔥 THE SPREAD-OUT VARIETY STRAT 🔥
+  // Assuming the GitHub Action cron runs 4 times a day (e.g., every 6 hours)
+  const RUNS_PER_DAY = 4;         
+  const TARGET_ARTICLES_PER_DAY = 8; // 8 per category * 4 categories = 32/day (Fits the 1,000/mo free limit)
   
-  const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  
-  // Total API calls we are allowed to make on this specific run
-  const maxCallsPerRun = Math.floor((MONTHLY_API_LIMIT / daysInMonth) / RUNS_PER_DAY);
-  
-  const numCategories = Object.keys(sources).length; // Usually 4 (Mixed, AI, Wars, Tech)
-  
-  // We will check 2 sources per category. (Fetching a source index costs 1 API call)
-  const sourcesToPick = 2; 
-  
-  // The budget is how many articles we fetch. (Fetching an article costs 1 API call)
-  // Budget = (Allowed calls per category) - (Calls used to check sources)
-  const allowedPerCategory = Math.floor(maxCallsPerRun / numCategories);
-  const calculatedBudget = Math.max(1, allowedPerCategory - sourcesToPick);
+  const budgetPerRun = Math.ceil(TARGET_ARTICLES_PER_DAY / RUNS_PER_DAY); // Aiming for 2 articles per category per run
+  const sourcesToPick = 3; // Pick 3 random outlets to guarantee high variety!
 
-  console.log(`\n📊 SMART PACER ACTIVE:`);
-  console.log(`   - Month Length: ${daysInMonth} days`);
-  console.log(`   - Safe API Limit per run: ${maxCallsPerRun} calls`);
-  console.log(`   - Target Budget: ${calculatedBudget} articles per category`);
+  console.log(`\n📊 SPREAD-OUT STRATEGY ACTIVE:`);
+  console.log(`   - Runs per day: ${RUNS_PER_DAY}`);
+  console.log(`   - Target Budget: ${budgetPerRun} articles per category, per run`);
+  console.log(`   - Variety: Pulling from ${sourcesToPick} different outlets per category`);
 
 
-  // 🔥 2. AUTOMATIC DATABASE CLEANUP
+  // 🔥 AUTOMATIC DATABASE CLEANUP
   console.log(`\n===== RUNNING DATABASE CLEANUP =====`);
   try {
     const cleanup = await db.execute(`
@@ -48,22 +36,26 @@ module.exports = async function runScraper(db, API_KEY){
   }
 
 
-  // 🔥 3. START SCRAPING
+  // 🔥 START SCRAPING
   let totalAdded = 0;
 
   for(const category in sources){
 
     console.log(`\n===== CATEGORY: ${category} =====`);
 
-    // Use our calculated budget instead of hardcoded numbers!
-    const budget = createBudget(calculatedBudget);
-    const ranked = rankSources(sources[category]);
+    // 🎲 SHUFFLE THE SOURCES FOR MAXIMUM VARIETY!
+    // This ensures we don't just pick the top 2 every single time.
+    const shuffledSources = sources[category].sort(() => 0.5 - Math.random());
+    
+    const ranked = rankSources(shuffledSources);
     const selected = selectSources(ranked, sourcesToPick);
 
     console.log(
-      "Sources:",
-      selected.map(s=>`${s.name} (${s.score})`).join(", ")
+      "Sources Selected for this run:",
+      selected.map(s => `${s.name}`).join(" | ")
     );
+
+    const budget = createBudget(budgetPerRun);
 
     // RUN SOURCES IN PARALLEL
     await Promise.all(selected.map(async (source)=>{
@@ -75,7 +67,7 @@ module.exports = async function runScraper(db, API_KEY){
       const {elements,$,usedRSS} = await scrapeSource(source,API_KEY);
 
       if(elements.length === 0){
-        console.log("❌ No articles");
+        console.log("❌ No links found");
         source.freshness = -1;
         return;
       }
@@ -83,7 +75,10 @@ module.exports = async function runScraper(db, API_KEY){
       let added = 0;
       let duplicates = 0;
 
-      for(const el of elements){
+      // We shuffle the elements too, so we don't always grab the exact top headline
+      const shuffledElements = elements.sort(() => 0.5 - Math.random());
+
+      for(const el of shuffledElements){
 
         if(budget.reached()) break;
 
@@ -111,7 +106,7 @@ module.exports = async function runScraper(db, API_KEY){
         if(result.added){
           added++;
           totalAdded++;
-          budget.add(); // Consumes 1 budget slot
+          budget.add();
         }
 
         if(result.duplicate) duplicates++;
@@ -124,12 +119,11 @@ module.exports = async function runScraper(db, API_KEY){
       else source.freshness = 0;
 
       console.log(`RESULT added:${added} dup:${duplicates}`);
-      if(usedRSS) console.log(`⚠ ${source.name} used RSS`);
+      if(usedRSS) console.log(`✓ ${source.name} safely used RSS fallback`);
 
     }));
   }
 
   console.log(`\n===== SCRAPER COMPLETE =====`);
-  console.log(`Total new articles added: ${totalAdded}`);
-
+  console.log(`Total new articles added this run: ${totalAdded}`);
 };
