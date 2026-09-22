@@ -9,49 +9,10 @@ module.exports = async function scrapeSource(source,API_KEY){
   let $ = null;
   let usedRSS = false;
 
-  const html = await fetchPage(source.url,source,API_KEY);
-
-  if(html){
-
-    try{
-
-      $ = cheerio.load(html);
-
-      elements = $(source.selectors[0])
-        .toArray()
-        .slice(0,5);
-
-      console.log(`HTML found ${elements.length}`);
-
-      // NEW: detect RSS in page header
-      if(!source.rss){
-
-        const feed =
-          $('link[type="application/rss+xml"]').attr("href") ||
-          $('link[type="application/atom+xml"]').attr("href");
-
-        if(feed){
-
-          source.rss = feed.startsWith("http")
-            ? feed
-            : new URL(feed,source.url).href;
-
-          console.log("🔎 RSS found in HTML:",source.rss);
-
-        }
-
-      }
-
-    }catch(e){
-
-      console.log("Cheerio failed");
-
-    }
-
-  }
-
-  // SUPPORT MULTIPLE RSS FEEDS
-  if(elements.length === 0 && source.rss){
+  // 🔥 RSS-FIRST: when a source already has known feeds configured, use them
+  // before ever touching the HTML listing page. RSS is free; the listing
+  // page fetch is the one that can fall back to paid ScraperAPI credits.
+  if(source.rss){
 
     const feeds = Array.isArray(source.rss)
       ? source.rss
@@ -68,7 +29,8 @@ module.exports = async function scrapeSource(source,API_KEY){
         elements = items.map(i=>({
           rss:true,
           title:i.title,
-          link:i.link
+          link:i.link,
+          content:i.content
         }));
 
         break;
@@ -79,7 +41,53 @@ module.exports = async function scrapeSource(source,API_KEY){
 
   }
 
-  // DISCOVER RSS
+  // FALL BACK TO HTML SCRAPING — only path that can spend proxy credits
+  if(elements.length === 0){
+
+    const html = await fetchPage(source.url,source,API_KEY);
+
+    if(html){
+
+      try{
+
+        $ = cheerio.load(html);
+
+        elements = $(source.selectors[0])
+          .toArray()
+          .slice(0,5);
+
+        console.log(`HTML found ${elements.length}`);
+
+        // detect RSS in page header for next time
+        if(!source.rss){
+
+          const feed =
+            $('link[type="application/rss+xml"]').attr("href") ||
+            $('link[type="application/atom+xml"]').attr("href");
+
+          if(feed){
+
+            source.rss = feed.startsWith("http")
+              ? feed
+              : new URL(feed,source.url).href;
+
+            console.log("🔎 RSS found in HTML:",source.rss);
+
+          }
+
+        }
+
+      }catch(e){
+
+        console.log("Cheerio failed");
+
+      }
+
+    }
+
+  }
+
+  // DISCOVER RSS — last resort for sources with no configured/detected feed
   if(elements.length === 0){
 
     const discovered = await discoverRSS(source.url);
@@ -97,7 +105,8 @@ module.exports = async function scrapeSource(source,API_KEY){
         elements = items.map(i=>({
           rss:true,
           title:i.title,
-          link:i.link
+          link:i.link,
+          content:i.content
         }));
 
       }

@@ -11,7 +11,7 @@ module.exports = async function runScraper(db, API_KEY){
   // 🔥 THE SPREAD-OUT VARIETY STRAT 🔥
   // Assuming the GitHub Action cron runs 4 times a day (e.g., every 6 hours)
   const RUNS_PER_DAY = 4;         
-  const TARGET_ARTICLES_PER_DAY = 8; // 8 per category * 4 categories = 32/day (Fits the 1,000/mo free limit)
+  const TARGET_ARTICLES_PER_DAY = 16; // 16 per category * 4 categories = 64/day (RSS-first ingestion uses far fewer ScraperAPI credits per article now)
   
   const budgetPerRun = Math.ceil(TARGET_ARTICLES_PER_DAY / RUNS_PER_DAY); // Aiming for 2 articles per category per run
   const sourcesToPick = 3; // Pick 3 random outlets to guarantee high variety!
@@ -101,7 +101,7 @@ module.exports = async function runScraper(db, API_KEY){
           link = base + link;
         }
 
-        const result = await ingestArticle(db,source,title,link,category,API_KEY);
+        const result = await ingestArticle(db,source,title,link,category,API_KEY,el.rss ? el.content : null);
 
         if(result.added){
           added++;

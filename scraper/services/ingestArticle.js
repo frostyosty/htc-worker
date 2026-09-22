@@ -2,24 +2,50 @@ const isDuplicate = require("./duplicateCheck");
 const fetchPage = require("./fetchPage");
 const extractArticle = require("./extractArticle");
 
-module.exports = async function ingestArticle(db, source, title, link, category, API_KEY) {
+// Long enough that we trust the feed's own body text and can skip re-fetching
+// (and re-scraping) the article page altogether — the real API-call saver.
+const MIN_RSS_CONTENT_LENGTH = 400;
+
+module.exports = async function ingestArticle(db, source, title, link, category, API_KEY, rssContent) {
 
   if(await isDuplicate(db, title, link))
     return {duplicate: true};
 
-  const html = await fetchPage(link, source, API_KEY);
-  if(!html) return {failed: true};
+  const strippedRSS = rssContent
+    ? rssContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    : '';
 
-  const meta = extractArticle(html, source);
-  if(!meta || !meta.text) return {failed:true};
+  let rawText;
+  let image = null;
+
+  if(strippedRSS.length >= MIN_RSS_CONTENT_LENGTH){
+
+    // 🔥 RSS already gave us the body — zero network calls for this article.
+    rawText = rssContent;
+
+  } else {
+
+    const html = await fetchPage(link, source, API_KEY);
+    if(!html) return {failed: true};
+
+    const meta = extractArticle(html, source);
+    if(!meta || !meta.text) return {failed:true};
+
+    rawText = meta.text;
+    image = meta.image || null;
+
+  }
 
   // 🔥 THE PRIMO SCRAPER TEXT CLEANER 🔥
-  
+
   // 1. Normalize ALL line breaks, <br>, and <p> tags into exactly "|||"
-  let normalizedText = meta.text
+  let normalizedText = rawText
     .replace(/<\/?p>/gi, '|||')       // Turn HTML paragraphs into |||
     .replace(/<br\s*\/?>/gi, '|||')   // Turn HTML breaks into |||
     .replace(/\n+/g, '|||')           // Turn actual newlines into |||
+    // RSS content:encoded can carry <a>/<img>/<div> etc — strip remaining
+    // tags (keeps anchor text, drops attributes) before it reaches the frontend
+    .replace(/<[^>]+>/g, '')
     .replace(/\|\|\|+/g, '|||');      // Collapse multiple ||| into a single |||
 
   // 2. Filter the chunks
@@ -58,8 +84,8 @@ module.exports = async function ingestArticle(db, source, title, link, category,
       finalCleanText, // <-- Use the newly formatted text
       category,
       link,
-      meta.image || null,
-      meta.image ? 1 : 0
+      image,
+      image ? 1 : 0
     ]
   });
 

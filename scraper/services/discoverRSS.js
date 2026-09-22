@@ -38,7 +38,16 @@ module.exports = async function discoverRSS(baseUrl){
 
       const url = new URL(path,baseUrl).href;
 
-      const res = await fetch(url,{timeout:3000});
+      // Native fetch ignores a `timeout` option — without AbortController a
+      // hung request here can silently eat the whole workflow's time budget.
+      const controller = new AbortController();
+      const timer = setTimeout(()=>controller.abort(),3000);
+      let res;
+      try{
+        res = await fetch(url,{signal:controller.signal});
+      } finally {
+        clearTimeout(timer);
+      }
 
       if(!res.ok) continue;
 
